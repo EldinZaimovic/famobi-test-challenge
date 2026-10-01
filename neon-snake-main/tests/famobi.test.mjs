@@ -6,6 +6,7 @@ import { FamobiPlatform } from '../src/platform/FamobiPlatform.ts';
 import { FamobiGameStorage } from '../src/core/storage/GameStorage.ts';
 import { GameAudio } from '../src/core/audio/GameAudio.ts';
 import { GameplayAnalytics } from '../src/core/analytics/GameplayAnalytics.ts';
+import { HttpAnalyticsSink } from '../src/platform/HttpAnalyticsSink.ts';
 import { FamobiAnalyticsStorage, ANALYTICS_STORAGE_KEY, ANALYTICS_EVENT_LIMIT } from '../src/platform/FamobiAnalyticsStorage.ts';
 
 global.window = {};
@@ -710,4 +711,62 @@ test('analytics journal survives recreation, recovers corrupt data and bounds re
     assert.deepEqual(f.recorded(), [event]);
   }
   assert.equal(new FamobiGameStorage(f.sdk.storage).loadProfile().totalRuns, 1);
+});
+
+test('HTTP outbox retains failures, survives recreation, and only removes acknowledged events', async () => {
+  const saved = new Map();
+  const storage = { getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value) };
+  const event = { eventId: 'attempt:1', name: 'gameplay_started' };
+  const offline = new HttpAnalyticsSink(storage, async () => { throw new Error('offline'); });
+  offline.record(event);
+  await offline.flush();
+  offline.dispose();
+  assert.equal(JSON.parse(saved.get('neon-snake:outbox:v1')).length, 1);
+  const requests = [];
+  const restored = new HttpAnalyticsSink(storage, async (_url, options) => { requests.push(JSON.parse(options.body)); return { ok: true, status: 200 }; });
+  await restored.flush();
+  restored.dispose();
+  assert.deepEqual(requests, [{ events: [event] }]);
+  assert.deepEqual(JSON.parse(saved.get('neon-snake:outbox:v1')), []);
+});
+
+test('HTTP outbox drops only a poison event and bounds offline storage', async () => {
+  const saved = new Map();
+  const storage = { getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value) };
+  const sink = new HttpAnalyticsSink(storage, async () => ({ ok: false, status: 400 }));
+  for (let i = 0; i < 205; i++) sink.record({ eventId: `attempt:${i}` });
+  assert.equal(JSON.parse(saved.get('neon-snake:outbox:v1')).length, 200);
+  await sink.flush();
+  sink.dispose();
+  const remaining = JSON.parse(saved.get('neon-snake:outbox:v1'));
+  assert.equal(remaining.length, 199);
+  assert.equal(remaining[0].eventId, 'attempt:6');
+});
+
+test('HTTP departure delivery retains events until an acknowledged retry', async () => {
+  const saved = new Map();
+  const requests = [];
+  const sink = new HttpAnalyticsSink({ getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value) }, async (_url, options) => { requests.push(options); return { ok: true, status: 200 }; });
+  sink.record({ eventId: 'attempt:1' });
+  sink.flushOnDeparture();
+  sink.dispose();
+  assert.equal(requests[0].keepalive, true);
+  assert.equal(JSON.parse(saved.get('neon-snake:outbox:v1')).length, 1);
+});
+
+test('default HTTP transport preserves the native fetch calling context', async () => {
+  const original = global.fetch;
+  const saved = new Map();
+  let receiver;
+  global.fetch = async function () { receiver = this; return { ok: true, status: 200 }; };
+  const sink = new HttpAnalyticsSink({ getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value) });
+  try {
+    sink.record({ eventId: 'attempt:1' });
+    await sink.flush();
+    assert.notEqual(receiver, sink);
+    assert.deepEqual(JSON.parse(saved.get('neon-snake:outbox:v1')), []);
+  } finally {
+    sink.dispose();
+    global.fetch = original;
+  }
 });

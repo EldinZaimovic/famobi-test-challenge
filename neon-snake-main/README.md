@@ -2,7 +2,7 @@
 
 A compact browser game built with Phaser 3, TypeScript, Vite, and a DOM-based interface.
 
-The game integrates the Famobi GameInterface SDK. The SDK owns initialization, lifecycle reporting, storage, external pause/mute, and interstitial ad slots. No backend or dashboard is required.
+The game integrates the Famobi GameInterface SDK. The SDK owns initialization, lifecycle reporting, storage, external pause/mute, and interstitial ad slots. The analytics backend now lives at the repository root; see [the full local setup](../README.md).
 
 ## Gameplay analytics
 
@@ -32,7 +32,7 @@ Hiding the tab pauses gameplay without ending the attempt. A non-cached `pagehid
 records a departure synchronously; a page kept in the browser's back/forward cache
 keeps its attempt so it can resume when restored.
 
-The default sink, `FamobiAnalyticsStorage`, stores the most recent **200 events**
+The journal sink, `FamobiAnalyticsStorage`, stores the most recent **200 events**
 as JSON under `neon-snake:analytics:v1` in `GameInterface.storage`, separately from
 the player's profile. Older events are discarded. Inspect them in the browser
 console after SDK initialization:
@@ -42,15 +42,12 @@ const events = JSON.parse(GameInterface.storage.getItem('neon-snake:analytics:v1
 console.table(events);
 ```
 
-This is a bounded local journal, not a remote analytics backend. Famobi's existing
-SDK reporting remains active. To connect an approved collector, supply an
-`AnalyticsSink` with a `record(event)` method in `src/main.ts`; it may return a
-promise. `eventId` supports collector deduplication. Storage exceptions and rejected
-transport promises never block or fail gameplay. There is no automatic network
-retry or guarantee of delivery. Storage restrictions, process termination without
-`pagehide`, and eventual eviction of a cached page can leave an attempt without an
-end event; consumers must treat that outcome as unknown. The retention limit can
-also remove the start of an older attempt.
+The journal runs alongside `HttpAnalyticsSink`, which persists a separate bounded
+outbox in localStorage and sends events to `/api/events`. The Vite proxy forwards
+them to the local Node.js backend. Failed requests retry; the backend deduplicates
+by event ID. Storage or transport exceptions never block gameplay. See the
+[root README](../README.md) for delivery guarantees, emulator setup, the HTTP
+contract, and how incomplete histories are displayed.
 
 ## Gameplay
 
@@ -64,12 +61,18 @@ also remove the start of an older attempt.
 
 ## Run locally
 
-Requirements: Node.js 22 or newer and pnpm.
+For the complete offline game/backend flow, run `npm ci` and
+`npm run dev` from the **repository root**. No hosted SDK is needed in that mode.
+
+For the real hosted Famobi SDK path, after the root install:
 
 ```bash
-pnpm install
-pnpm dev
+npm run dev -w neon-snake-main
 ```
+
+The game uses port 5174. Start the backend separately if you want remote analytics
+in this mode. The older pnpm instructions below apply only to the original
+standalone SDK verification workflow, not the complete workspace.
 
 Then open the local URL printed by Vite.
 
@@ -120,7 +123,7 @@ The game simulation remains independent from Phaser. An application controller c
 
 Player preferences, the best score, run count, and unlocked levels are saved through `GameInterface.storage`, which scopes saves to the Famobi game ID. Audio is generated in the browser without external media files.
 
-The included workflow builds and deploys the game whenever the default branch is updated.
+The original game deployment workflow is preserved under this subdirectory. The complete analytics solution is local-only and does not require deployment.
 
 ## License
 
@@ -132,7 +135,7 @@ The implementation follows the current [start/loading](https://docs.famobi.com/s
 [game lifecycle](https://docs.famobi.com/game), [pause](https://docs.famobi.com/pause),
 and [API](https://docs.famobi.com/api) documentation.
 
-- `index.html` loads the official `https://api.games.famobi.com/init.js` in its head.
+- `src/bootstrap.ts` loads the official `https://api.games.famobi.com/init.js` before initializing the game. In the explicit `local-demo` mode only, it loads the offline development adapter instead.
 - `src/bootstrap.ts` calls `FamobiPlatform.initialize`, which passes a module-loading callback to `GameInterface.init`.
   Phaser, the game, and its CSS are imported only when the SDK invokes that callback.
   The adapter awaits both the init promise and the module import before constructing

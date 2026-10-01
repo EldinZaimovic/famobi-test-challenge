@@ -4,6 +4,7 @@ import Phaser from 'phaser';
 import { GameRenderer } from './game/GameRenderer';
 import { FamobiPlatform } from './platform/FamobiPlatform';
 import { FamobiAnalyticsStorage } from './platform/FamobiAnalyticsStorage';
+import { HttpAnalyticsSink } from './platform/HttpAnalyticsSink';
 import { GameplayAnalytics } from './core/analytics/GameplayAnalytics';
 
 import { GameController } from './application/GameController';
@@ -38,12 +39,21 @@ export function startGame(): void {
   const simulation = new SnakeGame();
   const sdk = window.GameInterface;
   const platform = new FamobiPlatform(sdk);
+  const journal = new FamobiAnalyticsStorage(sdk.storage);
+  const transport = new HttpAnalyticsSink({
+    getItem: key => localStorage.getItem(key),
+    setItem: (key, value) => localStorage.setItem(key, value)
+  });
+  void transport.flush();
+  window.addEventListener('online', () => { void transport.flush(); });
   const controller = new GameController(
     simulation,
     new FamobiGameStorage(sdk.storage),
     platform,
     sdk.hasFeature('pause'),
-    new GameplayAnalytics(new FamobiAnalyticsStorage(sdk.storage))
+    new GameplayAnalytics({ record(event) {
+      try { journal.record(event); } finally { transport.record(event); }
+    } })
   );
   const disconnectPlatform = platform.connect(controller);
   const snakeScene = new SnakeScene(controller);
@@ -255,6 +265,8 @@ export function startGame(): void {
     if (event.persisted) return;
     disconnectPlatform();
     controller.dispose('page_exit');
+    transport.flushOnDeparture();
+    transport.dispose();
     phaserGame.destroy(true);
   });
 }

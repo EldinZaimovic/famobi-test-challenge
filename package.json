@@ -1,0 +1,28 @@
+{
+  "name": "neon-snake-analytics",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "backend",
+    "neon-snake-main"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "firebase emulators:exec --ui --project demo-neon-snake --only firestore --import=.emulator-data --export-on-exit=.emulator-data \"npm run dev:apps\"",
+    "dev:apps": "concurrently --kill-others -n api,game \"npm run dev -w backend\" \"npm run dev:local -w neon-snake-main\"",
+    "emulators": "firebase emulators:start --project demo-neon-snake --only firestore --import=.emulator-data --export-on-exit=.emulator-data",
+    "test": "npm run test -w backend && npm run test -w neon-snake-main",
+    "test:integration": "firebase emulators:exec --config firebase.test.json --project demo-neon-snake-test --only firestore \"node --test backend/test/integration.test.js\"",
+    "build": "npm run build -w neon-snake-main",
+    "seed": "node scripts/seed.js",
+    "format": "prettier --write backend scripts firebase*.json firestore.indexes.json package.json README.md",
+    "format:check": "prettier --check backend scripts firebase*.json firestore.indexes.json package.json README.md"
+  },
+  "devDependencies": {
+    "concurrently": "9.2.0",
+    "firebase-tools": "14.12.1",
+    "prettier": "3.6.2"
+  }
+}
