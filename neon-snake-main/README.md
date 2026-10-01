@@ -4,6 +4,54 @@ A compact browser game built with Phaser 3, TypeScript, Vite, and a DOM-based in
 
 The game integrates the Famobi GameInterface SDK. The SDK owns initialization, lifecycle reporting, storage, external pause/mute, and interstitial ad slots. No backend or dashboard is required.
 
+## Gameplay analytics
+
+Each level entry or retry creates an independent attempt. The controller records
+typed, versioned events through `GameplayAnalytics`, independently of the existing
+Famobi lifecycle calls:
+
+| Event | Recorded when |
+| --- | --- |
+| `gameplay_started` | The SDK acknowledges the start and the level is initialized. Rejected or cancelled starts produce no attempt. |
+| `gameplay_progress` | Score or fruit progress changes; at most one event per fruit, never per frame. |
+| `gameplay_ended` | The level completes, fails, or is left through the menu, restart, level replacement, page departure, or disposal. |
+
+Every event contains `schemaVersion: 1`, a unique `eventId`, an `attemptId` shared
+by that attempt's events, `occurredAt` (Unix milliseconds), `level`, cumulative
+`score`, `levelScore` earned in this attempt, `progress` (0–1), `fruitEaten`,
+`target`, and `durationMs`. Duration uses a monotonic clock, includes pauses, and
+starts after SDK start acknowledgment. End events add `outcome` (`completed`,
+`failed`, or `left`), `failureReason` for failures, and `leaveReason` for departures
+(`menu`, `restart`, `replaced`, `page_exit`, or `disposed`). Non-applicable reasons
+are `null`. No player identity, URLs, or device information are collected.
+
+Outcomes are captured at the actual gameplay transition, before waiting for the
+SDK. This also handles a collision during a pending pause. Each attempt ends at
+most once; retries get a new ID, and leaving a result screen adds no second end.
+Hiding the tab pauses gameplay without ending the attempt. A non-cached `pagehide`
+records a departure synchronously; a page kept in the browser's back/forward cache
+keeps its attempt so it can resume when restored.
+
+The default sink, `FamobiAnalyticsStorage`, stores the most recent **200 events**
+as JSON under `neon-snake:analytics:v1` in `GameInterface.storage`, separately from
+the player's profile. Older events are discarded. Inspect them in the browser
+console after SDK initialization:
+
+```js
+const events = JSON.parse(GameInterface.storage.getItem('neon-snake:analytics:v1') || '[]');
+console.table(events);
+```
+
+This is a bounded local journal, not a remote analytics backend. Famobi's existing
+SDK reporting remains active. To connect an approved collector, supply an
+`AnalyticsSink` with a `record(event)` method in `src/main.ts`; it may return a
+promise. `eventId` supports collector deduplication. Storage exceptions and rejected
+transport promises never block or fail gameplay. There is no automatic network
+retry or guarantee of delivery. Storage restrictions, process termination without
+`pagehide`, and eventual eviction of a cached page can leave an attempt without an
+end event; consumers must treat that outcome as unknown. The retention limit can
+also remove the start of an older attempt.
+
 ## Gameplay
 
 - Clear three increasingly fast levels.
@@ -42,6 +90,8 @@ src/
 │   ├── GameController.ts
 │   └── gameEvents.ts
 ├── core/
+│   ├── analytics/
+│   │   └── GameplayAnalytics.ts
 │   ├── audio/
 │   │   └── GameAudio.ts
 │   ├── events/
@@ -57,6 +107,7 @@ src/
 │   ├── snakeGame.ts
 │   └── types.ts
 ├── platform/
+│   ├── FamobiAnalyticsStorage.ts
 │   ├── FamobiPlatform.ts
 │   ├── FamobiSdk.ts
 │   └── GamePlatform.ts
@@ -156,6 +207,10 @@ it is never included in the shipped game. The suite covers:
   **50 / 140 / 270**, cumulative totals **50 / 190 / 460**, progress resets,
   unlock persistence, and final completion ordering;
 - invalid saved data and immediate muting of already scheduled audio.
+- analytics correlation and outcomes across all levels, retry/replacement/menu
+  departures, paused page departures, pending-start disposal, occurrence timestamps
+  during delayed SDK responses, clock changes, duplicate prevention, bounded
+  persistence, malformed storage, and synchronous/asynchronous sink failures.
 
 Browser checks use the **real hosted Famobi localTester SDK**, not the test double:
 

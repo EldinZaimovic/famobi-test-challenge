@@ -1,4 +1,5 @@
 import type { GamePlatform } from '../platform/GamePlatform';
+import type { GameplayAnalytics, LeaveReason } from '../core/analytics/GameplayAnalytics';
 import { GameAudio } from '../core/audio/GameAudio';
 import { EventBus } from '../core/events/EventBus';
 import type { GameStorage, PlayerProfile } from '../core/storage/GameStorage';
@@ -21,6 +22,7 @@ export class GameController {
   private systemPauseActive = false;
   private systemMuted = false;
   private ready = false;
+  private disposed = false;
   private pendingTransition: Transition | null = null;
   private transitionError: string | null = null;
   private listeners = new Set<GameListener>();
@@ -29,7 +31,8 @@ export class GameController {
     private readonly simulation: SnakeGame,
     private readonly storage: GameStorage,
     private readonly platform: GamePlatform,
-    private readonly playerPauseEnabled = true
+    private readonly playerPauseEnabled = true,
+    private readonly analytics?: GameplayAnalytics
   ) {
     this.profile = storage.loadProfile();
     this.audio = new GameAudio(this.profile.playerMuted);
@@ -85,6 +88,7 @@ export class GameController {
   canAdvance(): boolean {
     return (
       this.ready &&
+      !this.disposed &&
       !this.transitionError &&
       !this.systemPauseActive &&
       this.getSnapshot().phase === 'playing' &&
@@ -107,7 +111,7 @@ export class GameController {
   }
 
   restartLevel(): Promise<void> {
-    return this.startRun(this.getSnapshot().level, () => this.simulation.restartLevel());
+    return this.startRun(this.getSnapshot().level, () => this.simulation.restartLevel(), 'restart');
   }
 
   goToNextLevel(): Promise<void> {
@@ -152,6 +156,7 @@ export class GameController {
     return this.transition(paused ? 'pausing' : 'resuming', async () => {
       if (paused) await this.platform.pause();
       else await this.platform.resume();
+      if (this.disposed) return;
       // The snake can finish or collide while a pause acknowledgment is pending.
       await this.finishLevel();
       if (!this.run) return;
@@ -160,15 +165,18 @@ export class GameController {
     });
   }
 
-  private startRun(level: number, start: () => void): Promise<void> {
+  private startRun(level: number, start: () => void, leaveReason: LeaveReason = 'replaced'): Promise<void> {
     if (this.systemPauseActive) return Promise.resolve();
     return this.transition('starting', async () => {
-      await this.endRun('quit');
+      await this.endRun('quit', leaveReason);
+      if (this.disposed) return;
       await this.platform.start(level);
+      if (this.disposed) return;
       this.playerPauseActive = false;
       start();
       const snapshot = this.getSnapshot();
       this.run = { startedAt: Date.now(), initialScore: snapshot.score };
+      this.analytics?.start(snapshot);
       this.profile = { ...this.profile, totalRuns: this.profile.totalRuns + 1 };
       this.storage.saveProfile(this.profile);
       this.platform.score(snapshot.score, level);
@@ -184,12 +192,18 @@ export class GameController {
     });
   }
 
-  private async endRun(reason: RunEndReason): Promise<void> {
+  private async endRun(reason: RunEndReason, leaveReason: LeaveReason = 'menu'): Promise<void> {
     if (!this.run) return;
     const snapshot = this.getSnapshot();
-    const durationMs = Math.max(0, Date.now() - this.run.startedAt);
+    const occurredAt = Date.now();
+    const durationMs = Math.max(0, occurredAt - this.run.startedAt);
     const levelScore = snapshot.score - this.run.initialScore;
     this.run = null;
+    this.analytics?.end(
+      snapshot,
+      reason === 'complete' ? 'completed' : reason === 'fail' ? 'failed' : 'left',
+      leaveReason
+    );
     await this.platform.end(reason, snapshot, durationMs, levelScore);
     if (reason === 'complete') {
       this.profile.highestUnlockedLevel = Math.max(
@@ -207,7 +221,7 @@ export class GameController {
       progress: snapshot.progress,
       reason,
       durationMs,
-      occurredAt: Date.now()
+      occurredAt
     });
     if (snapshot.phase === 'finished') {
       this.events.emit('gameFinished', { score: snapshot.score, bestScore: this.profile.bestScore });
@@ -221,7 +235,7 @@ export class GameController {
   }
 
   private async transition(kind: Transition, action: () => Promise<void>): Promise<void> {
-    if (!this.ready || this.isBusy() || this.transitionError) return;
+    if (this.disposed || !this.ready || this.isBusy() || this.transitionError) return;
     this.pendingTransition = kind;
     this.notify();
     try {
@@ -262,7 +276,17 @@ export class GameController {
     this.events.emit('audioChanged', this.getAudioState());
   }
 
-  dispose(): void {
+  dispose(reason: LeaveReason = 'disposed'): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    const snapshot = this.getSnapshot();
+    this.analytics?.end(
+      snapshot,
+      snapshot.phase === 'game-over' ? 'failed' :
+        snapshot.phase === 'level-complete' || snapshot.phase === 'finished' ? 'completed' : 'left',
+      reason
+    );
+    this.run = null;
     this.unsubscribe();
     this.audio.dispose();
     this.events.clear();
@@ -274,6 +298,17 @@ export class GameController {
     this.previousSnapshot = snapshot;
     // Start/reset values are reported explicitly by startRun after SDK acknowledgment.
     if (this.pendingTransition === 'starting') return;
+
+    if (this.run && (snapshot.score !== previous.score || snapshot.progress !== previous.progress)) {
+      this.analytics?.progress(snapshot);
+    }
+    // Capture the actual terminal moment, including collisions during an SDK pause wait.
+    if (
+      this.run &&
+      (snapshot.phase === 'game-over' || snapshot.phase === 'level-complete' || snapshot.phase === 'finished')
+    ) {
+      this.analytics?.end(snapshot, snapshot.phase === 'game-over' ? 'failed' : 'completed');
+    }
 
     if (snapshot.score !== previous.score) {
       const delta = snapshot.score - previous.score;

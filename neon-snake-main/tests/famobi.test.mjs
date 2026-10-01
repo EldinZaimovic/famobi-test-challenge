@@ -5,6 +5,8 @@ import { SnakeGame } from '../src/game/snakeGame.ts';
 import { FamobiPlatform } from '../src/platform/FamobiPlatform.ts';
 import { FamobiGameStorage } from '../src/core/storage/GameStorage.ts';
 import { GameAudio } from '../src/core/audio/GameAudio.ts';
+import { GameplayAnalytics } from '../src/core/analytics/GameplayAnalytics.ts';
+import { FamobiAnalyticsStorage, ANALYTICS_STORAGE_KEY, ANALYTICS_EVENT_LIMIT } from '../src/platform/FamobiAnalyticsStorage.ts';
 
 global.window = {};
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -17,7 +19,7 @@ const deferred = () => {
   return { promise, resolve, reject };
 };
 
-function fixture({ playerPauseEnabled = true } = {}) {
+function fixture({ playerPauseEnabled = true, analyticsSink, analyticsRuntime } = {}) {
   const calls = [];
   const callbacks = {};
   const saved = new Map();
@@ -55,14 +57,17 @@ function fixture({ playerPauseEnabled = true } = {}) {
     };
   const simulation = new SnakeGame();
   const platform = new FamobiPlatform(sdk);
+  const analytics = new GameplayAnalytics(analyticsSink ?? new FamobiAnalyticsStorage(sdk.storage), analyticsRuntime);
   const controller = new GameController(
     simulation,
     new FamobiGameStorage(sdk.storage),
     platform,
-    playerPauseEnabled
+    playerPauseEnabled,
+    analytics
   );
   controller.markReady();
-  return { sdk, calls, callbacks, saved, simulation, platform, controller };
+  const recorded = () => JSON.parse(saved.get(ANALYTICS_STORAGE_KEY) ?? '[]');
+  return { sdk, calls, callbacks, saved, simulation, platform, controller, recorded };
 }
 const events = (f, name) => f.calls.filter((call) => call[0] === name);
 
@@ -85,11 +90,13 @@ test('delayed start blocks movement and duplicate starts until SDK resolves', as
   f.controller.tick();
   assert.equal(f.controller.getSnapshot().phase, 'menu');
   assert.equal(events(f, 'gameStart').length, 1);
+  assert.deepEqual(f.recorded(), []);
   gate.resolve();
   await starting;
   assert.equal(f.controller.getSnapshot().phase, 'playing');
   assert.deepEqual(events(f, 'sendScore'), [['sendScore', 0, { type: 'live', level: 1 }]]);
   assert.deepEqual(events(f, 'sendProgress'), [['sendProgress', 0]]);
+  assert.equal(f.recorded().filter((e) => e.name === 'gameplay_started').length, 1);
 });
 
 test('wall failure freezes the board and delays result/retry until end resolves', async () => {
@@ -315,6 +322,21 @@ test('plays all three real levels: live/level/total scores, progress, unlocks an
     const restored = new FamobiGameStorage(f.sdk.storage).loadProfile();
     assert.equal(restored.bestScore, 460);
     assert.equal(restored.highestUnlockedLevel, 3);
+    const records = f.recorded();
+    const starts = records.filter((e) => e.name === 'gameplay_started');
+    const ends = records.filter((e) => e.name === 'gameplay_ended');
+    assert.equal(new Set(starts.map((e) => e.attemptId)).size, 3);
+    assert.deepEqual(ends.map((e) => e.attemptId), starts.map((e) => e.attemptId));
+    assert.deepEqual(ends.map((e) => e.level), [1, 2, 3]);
+    assert.deepEqual(ends.map((e) => e.outcome), ['completed', 'completed', 'completed']);
+    assert.deepEqual(ends.map((e) => e.levelScore), [50, 140, 270]);
+    assert.deepEqual(ends.map((e) => e.score), [50, 190, 460]);
+    assert.deepEqual(ends.map((e) => e.progress), [1, 1, 1]);
+    assert.deepEqual(starts.map((e) => e.progress), [0, 0, 0]);
+    assert.deepEqual(starts.map((e) => e.levelScore), [0, 0, 0]);
+    // One progress record per fruit, never per animation tick.
+    assert.equal(records.filter((e) => e.name === 'gameplay_progress').length, 21);
+    assert.equal(new Set(records.map((e) => e.eventId)).size, records.length);
   } finally {
     Math.random = originalRandom;
   }
@@ -335,6 +357,7 @@ test('rejected SDK start fails closed, leaves menu and does not create a run', a
   assert.equal(f.controller.getSnapshot().phase, 'menu');
   assert.match(f.controller.getTransitionError(), /Reload/);
   assert.equal(f.controller.getProfile().totalRuns, 0);
+  assert.deepEqual(f.recorded(), []);
 });
 
 test('storage recovers from missing/malformed data and validates profile values', () => {
@@ -539,4 +562,152 @@ test('initialization and module errors propagate to the bootstrap error screen',
     }),
     /Game download failed/
   );
+});
+
+test('analytics captures occurrence time before SDK acknowledgment and uses monotonic duration', async () => {
+  let wallTime = 1_800_000_000_000;
+  let elapsed = 100;
+  const f = fixture({ analyticsRuntime: {
+    now: () => wallTime, monotonicNow: () => elapsed, id: () => 'attempt-1'
+  } });
+  await f.controller.startNewGame();
+  const gate = deferred();
+  f.sdk.gameEnd = () => gate.promise;
+  wallTime -= 5000; // Changing the system clock cannot produce a negative duration.
+  elapsed += 2500;
+  const ending = f.controller.forceGameOver();
+  assert.deepEqual(f.recorded().map((e) => e.name), ['gameplay_started', 'gameplay_ended']);
+  const end = f.recorded()[1];
+  assert.equal(end.occurredAt, wallTime);
+  assert.equal(end.durationMs, 2500);
+  assert.equal(end.outcome, 'failed');
+  assert.equal(end.failureReason, 'external');
+  assert.equal(end.attemptId, f.recorded()[0].attemptId);
+  assert.equal(end.schemaVersion, 1);
+  wallTime += 10_000;
+  elapsed += 10_000;
+  f.controller.dispose('page_exit');
+  gate.resolve();
+  await ending;
+  assert.deepEqual(f.recorded()[1], end);
+  assert.equal(f.recorded().length, 2);
+});
+
+test('analytics distinguishes restarts, replacements and menu exits with fresh attempt IDs', async () => {
+  const f = fixture();
+  await f.controller.startNewGame();
+  await f.controller.restartLevel();
+  await f.controller.goToLevel(2);
+  await f.controller.togglePlayerPause();
+  await f.controller.quitToMenu();
+  await f.controller.quitToMenu();
+  f.controller.dispose();
+  const records = f.recorded();
+  assert.deepEqual(records.map((e) => e.name), [
+    'gameplay_started', 'gameplay_ended', 'gameplay_started',
+    'gameplay_ended', 'gameplay_started', 'gameplay_ended'
+  ]);
+  const starts = records.filter((e) => e.name === 'gameplay_started');
+  const ends = records.filter((e) => e.name === 'gameplay_ended');
+  assert.equal(new Set(starts.map((e) => e.attemptId)).size, 3);
+  assert.deepEqual(ends.map((e) => e.attemptId), starts.map((e) => e.attemptId));
+  assert.deepEqual(ends.map((e) => e.outcome), ['left', 'left', 'left']);
+  assert.deepEqual(ends.map((e) => e.leaveReason), ['restart', 'replaced', 'menu']);
+  assert.deepEqual(ends.map((e) => e.level), [1, 1, 2]);
+});
+
+test('page departure captures the latest score/progress once, including paused runs', async () => {
+  const f = fixture();
+  await f.controller.startNewGame();
+  const route = pathToFruit(f.controller.getSnapshot());
+  for (const direction of route) {
+    f.controller.move(direction);
+    f.controller.tick();
+  }
+  await f.controller.togglePlayerPause();
+  f.controller.dispose('page_exit');
+  f.controller.dispose('page_exit');
+  await f.controller.restartLevel();
+  const ends = f.recorded().filter((e) => e.name === 'gameplay_ended');
+  assert.equal(ends.length, 1);
+  assert.equal(ends[0].outcome, 'left');
+  assert.equal(ends[0].leaveReason, 'page_exit');
+  assert.equal(ends[0].score, 10);
+  assert.equal(ends[0].levelScore, 10);
+  assert.equal(ends[0].progress, 1 / 5);
+  assert.equal(ends[0].fruitEaten, 1);
+  assert.equal(ends[0].target, 5);
+  assert.equal(f.controller.canAdvance(), false);
+});
+
+test('departing before a delayed start resolves cannot create phantom analytics', async () => {
+  const f = fixture();
+  const gate = deferred();
+  f.sdk.gameStart = () => gate.promise;
+  const starting = f.controller.startNewGame();
+  await settle();
+  f.controller.dispose('page_exit');
+  gate.resolve();
+  await starting;
+  assert.deepEqual(f.recorded(), []);
+  assert.equal(f.controller.getSnapshot().phase, 'menu');
+});
+
+test('collision during a pending pause is recorded immediately, even when the SDK rejects', async () => {
+  const f = fixture();
+  await f.controller.startNewGame();
+  const gate = deferred();
+  f.sdk.gamePause = () => gate.promise;
+  const pausing = f.controller.togglePlayerPause();
+  for (let i = 0; i < 10; i++) f.controller.tick();
+  const end = f.recorded().find((e) => e.name === 'gameplay_ended');
+  assert.equal(end.outcome, 'failed');
+  assert.equal(end.failureReason, 'wall');
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    gate.reject(new Error('Pause unavailable'));
+    await pausing;
+  } finally {
+    console.error = originalError;
+  }
+  f.controller.dispose('page_exit');
+  assert.equal(f.recorded().filter((e) => e.name === 'gameplay_ended').length, 1);
+});
+
+for (const asynchronous of [false, true]) {
+  test(`analytics ${asynchronous ? 'async rejection' : 'exception'} cannot interrupt gameplay`, async () => {
+    let writes = 0;
+    const f = fixture({ analyticsSink: { record() {
+      writes++;
+      if (asynchronous) return Promise.reject(new Error('Offline'));
+      throw new Error('Quota exceeded');
+    } } });
+    await f.controller.startNewGame();
+    await f.controller.quitToMenu();
+    await f.controller.startNewGame();
+    await f.controller.forceGameOver();
+    await settle();
+    assert.equal(writes, 4);
+    assert.equal(f.controller.getTransitionError(), null);
+    assert.equal(f.controller.getSnapshot().phase, 'game-over');
+  });
+}
+
+test('analytics journal survives recreation, recovers corrupt data and bounds retention', async () => {
+  const f = fixture();
+  f.saved.set(ANALYTICS_STORAGE_KEY, '{broken');
+  await f.controller.startNewGame();
+  const event = f.recorded()[0];
+  const journal = new FamobiAnalyticsStorage(f.sdk.storage);
+  for (let i = 1; i <= ANALYTICS_EVENT_LIMIT; i++) journal.record({ ...event, eventId: `test:${i}` });
+  assert.equal(f.recorded().length, ANALYTICS_EVENT_LIMIT);
+  assert.equal(f.recorded()[0].eventId, 'test:1');
+  assert.equal(f.recorded().at(-1).eventId, `test:${ANALYTICS_EVENT_LIMIT}`);
+  for (const malformed of ['null', '{}', '42']) {
+    f.saved.set(ANALYTICS_STORAGE_KEY, malformed);
+    journal.record(event);
+    assert.deepEqual(f.recorded(), [event]);
+  }
+  assert.equal(new FamobiGameStorage(f.sdk.storage).loadProfile().totalRuns, 1);
 });

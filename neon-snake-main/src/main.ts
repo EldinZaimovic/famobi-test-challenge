@@ -3,6 +3,8 @@ import './style.css';
 import Phaser from 'phaser';
 import { GameRenderer } from './game/GameRenderer';
 import { FamobiPlatform } from './platform/FamobiPlatform';
+import { FamobiAnalyticsStorage } from './platform/FamobiAnalyticsStorage';
+import { GameplayAnalytics } from './core/analytics/GameplayAnalytics';
 
 import { GameController } from './application/GameController';
 import { FamobiGameStorage } from './core/storage/GameStorage';
@@ -40,7 +42,8 @@ export function startGame(): void {
     simulation,
     new FamobiGameStorage(sdk.storage),
     platform,
-    sdk.hasFeature('pause')
+    sdk.hasFeature('pause'),
+    new GameplayAnalytics(new FamobiAnalyticsStorage(sdk.storage))
   );
   const disconnectPlatform = platform.connect(controller);
   const snakeScene = new SnakeScene(controller);
@@ -247,9 +250,11 @@ export function startGame(): void {
     button.addEventListener('click', () => controller.startAtLevel(Number(button.dataset.level)));
   });
 
-  window.addEventListener('beforeunload', () => {
+  window.addEventListener('pagehide', (event) => {
+    // A cached page resumes the same attempt when the player navigates back.
+    if (event.persisted) return;
     disconnectPlatform();
-    controller.dispose();
+    controller.dispose('page_exit');
     phaserGame.destroy(true);
   });
 }
