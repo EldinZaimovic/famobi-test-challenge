@@ -34,7 +34,11 @@ export default defineConfig([
     languageOptions: { globals: globals.node },
   },
   {
-    files: ["dashboard/src/**/*.{js,jsx}", "neon-snake-main/src/**/*.ts"],
+    files: [
+      "dashboard/src/**/*.{js,jsx}",
+      "dashboard/test/**/*.jsx",
+      "neon-snake-main/src/**/*.ts",
+    ],
     languageOptions: { globals: globals.browser },
   },
   {
@@ -52,7 +56,7 @@ export default defineConfig([
     },
   },
   {
-    files: ["dashboard/src/**/*.jsx"],
+    files: ["dashboard/**/*.jsx"],
     languageOptions: { parserOptions: { ecmaFeatures: { jsx: true } } },
     plugins: { "react-hooks": reactHooks },
     rules: {

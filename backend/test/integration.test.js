@@ -230,3 +230,46 @@ test("Firestore rules deny direct browser reads and writes", async () => {
     403,
   );
 });
+
+test("outcome filtering covers the cohort before the latest-50 display limit", async () => {
+  const target = history({ level: 2, outcome: "left" });
+  assert.equal((await post(target)).status, 200);
+  const targetId = target[0].attemptId;
+  await db.doc(`attempts/${targetId}`).update({
+    firstReceivedAt: Date.now() - 2 * 86400_000,
+  });
+  // More than a page of newer attempts would hide the matching older attempt
+  // if the UI filtered only recentAttempts.
+  const newerStarts = Array.from(
+    { length: 55 },
+    () => history({ level: 2 })[0],
+  );
+  assert.equal((await post(newerStarts.slice(0, 50))).status, 200);
+  assert.equal((await post(newerStarts.slice(50))).status, 200);
+  assert.equal(
+    (await view("&level=2")).recentAttempts.some(
+      (a) => a.attemptId === targetId,
+    ),
+    false,
+  );
+  const filtered = await view("&level=2&outcome=left");
+  assert.equal(filtered.window.outcome, "left");
+  assert.equal(filtered.summary.attempts, 1);
+  assert.equal(filtered.summary.left, 1);
+  assert.equal(filtered.levels[0].left, 1);
+  assert.equal(filtered.recentAttempts[0].attemptId, targetId);
+  const unknown = await view("&level=2&outcome=unknown");
+  assert.equal(unknown.summary.attempts, 55);
+  assert.equal(unknown.summary.unknown, 55);
+  assert.equal(unknown.summary.completionRate, null);
+  assert.equal(unknown.recentAttempts.length, 50);
+  assert.ok(unknown.recentAttempts.every((a) => a.outcome === "unknown"));
+  const recent = await (
+    await fetch(`${base}/api/dashboard?days=1&level=2&outcome=left`)
+  ).json();
+  assert.equal(recent.summary.attempts, 0);
+  assert.equal(
+    (await fetch(`${base}/api/dashboard?outcome=invalid`)).status,
+    400,
+  );
+});

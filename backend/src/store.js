@@ -69,7 +69,7 @@ export function aggregate(attempts) {
   };
 }
 
-export async function dashboard(db, { days, level }) {
+export async function dashboard(db, { days, level, outcome }) {
   const now = Date.now();
   const from = days === "all" ? 0 : now - Number(days) * 86400_000;
   // A bounded local demo query. Report truncation explicitly; never imply global totals.
@@ -83,10 +83,20 @@ export async function dashboard(db, { days, level }) {
   const attempts = snapshot.docs
     .slice(0, 5000)
     .map((doc) => doc.data())
-    .filter((a) => !level || a.level === Number(level));
+    .filter(
+      (a) =>
+        (!level || a.level === Number(level)) &&
+        (!outcome || a.outcome === outcome),
+    );
   return {
     generatedAt: now,
-    window: { days, level: level ?? null, from, basis: "firstReceivedAt" },
+    window: {
+      days,
+      level: level ?? null,
+      outcome: outcome ?? null,
+      from,
+      basis: "firstReceivedAt",
+    },
     truncated,
     scannedAttempts: Math.min(snapshot.size, 5000),
     summary: aggregate(attempts),

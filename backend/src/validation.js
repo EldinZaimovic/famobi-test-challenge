@@ -95,6 +95,7 @@ export const querySchema = z
   .object({
     days: z.enum(["1", "7", "30", "all"]).default("7"),
     level: z.enum(["1", "2", "3"]).optional(),
+    outcome: z.enum(["completed", "failed", "left", "unknown"]).optional(),
   })
   .strict();
 export const sequenceOf = (event) => Number(event.eventId.split(":").at(-1));
