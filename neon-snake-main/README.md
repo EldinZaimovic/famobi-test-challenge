@@ -2,7 +2,7 @@
 
 A compact browser game built with Phaser 3, TypeScript, Vite, and a DOM-based interface.
 
-The game integrates the Famobi GameInterface SDK. The SDK owns initialization, lifecycle reporting, storage, external pause/mute, and interstitial ad slots. The analytics backend now lives at the repository root; see [the full local setup](../README.md).
+The game integrates the Famobi GameInterface SDK. The SDK owns initialization, lifecycle reporting, storage, external pause/mute, and interstitial ad slots. The complete analytics backend and React dashboard now live at the repository root; see [the full local setup](../README.md).
 
 ## Gameplay analytics
 
@@ -61,7 +61,7 @@ contract, and how incomplete histories are displayed.
 
 ## Run locally
 
-For the complete offline game/backend flow, run `npm ci` and
+For the complete offline game/backend/dashboard flow, run `npm ci` and
 `npm run dev` from the **repository root**. No hosted SDK is needed in that mode.
 
 For the real hosted Famobi SDK path, after the root install:

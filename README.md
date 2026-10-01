@@ -1,6 +1,6 @@
-# Neon Snake · Analytics backend
+# Neon Snake · Gameplay analytics
 
-A locally runnable game → Node.js API → Firebase Firestore emulator, with aggregated JSON ready for a future analytics frontend. The React dashboard is not included in this backend change. No Firebase account, real project, service account, API key, or deployment is needed.
+A locally runnable game → Node.js API → Firebase Firestore emulator → React dashboard. No Firebase account, real project, service account, API key, or deployment is needed.
 
 ## Quick start
 
@@ -15,27 +15,29 @@ npm run dev
 
 | Component            | URL                              |
 | -------------------- | -------------------------------- |
+| React dashboard      | http://127.0.0.1:5173            |
 | Neon Snake game      | http://127.0.0.1:5174            |
 | Firebase Emulator UI | http://127.0.0.1:4000            |
 | API readiness        | http://127.0.0.1:3001/api/health |
 | Firestore emulator   | 127.0.0.1:8080                   |
 
-Keep that terminal open. `npm run dev` starts the emulator first, then the API and game Vite server; Ctrl-C stops the group and exports Firestore into the ignored `.emulator-data/` directory. The next run imports it (a missing directory on the first run is normal). Browser outboxes and game saves are separate localStorage data. A crash or forced shutdown can lose writes since the last export. Port conflicts fail startup instead of silently switching URLs.
+Keep that terminal open. `npm run dev` starts the emulator first, then the API and both Vite servers; Ctrl-C stops the group and exports Firestore into the ignored `.emulator-data/` directory. The next run imports it (a missing directory on the first run is normal). Browser outboxes and game saves are separate localStorage data. A crash or forced shutdown can lose writes since the last export. Port conflicts fail startup instead of silently switching URLs.
 
 The root **npm workspaces and `package-lock.json`** are the complete solution's install source. The game's older pnpm lockfile is retained only for its original standalone workflow; do not mix package managers in this checkout.
 
 ## Test the complete flow
 
-1. Open the game and select **Start game**. Let the snake hit a wall.
-2. Read `http://127.0.0.1:3001/api/dashboard?days=all` in a browser or run `curl 'http://127.0.0.1:3001/api/dashboard?days=all'`. The JSON contains a failed level-1 attempt, its duration, score, and event count.
+1. Open the dashboard: a new database shows the empty state.
+2. Open the game and select **Start game**. Let the snake hit a wall. Within five seconds the dashboard shows a failed level-1 attempt, its duration, score, and received events.
 3. Select **Try again**, then **Pause** → **Exit to menu**. This produces a separate attempt with outcome `left` and reason `menu`. Collect fruit to produce progress events; completing a level produces `completed`.
-4. Add `&level=1` or choose `days=1`, `7`, or `30` to filter the response. Open Firebase Emulator UI → Firestore → `attempts` and inspect an attempt and its `events` subcollection.
-5. Optionally run `npm run seed` in another terminal. It submits 12 deterministic demo attempts through the API, covering all three levels and all four outcomes. Re-running does not duplicate them. Synthetic occurrence times are fixed; query periods use server receipt time.
-6. Stop with Ctrl-C, then run `npm run dev` again: the API data should survive the export/import cycle.
+4. Filter by level and period. Open Firebase Emulator UI → Firestore → `attempts` and inspect an attempt and its `events` subcollection.
+5. Optionally run `npm run seed` in another terminal. It submits 12 deterministic demo attempts through the API, covering all three levels and all four displayed outcomes. Re-running does not duplicate them. Synthetic occurrence times are fixed; dashboard periods use server receipt time.
+6. Stop with Ctrl-C, then run `npm run dev` again: the dashboard data should survive the export/import cycle.
 
-To verify outage recovery independently, run `npm run emulators` in one terminal, `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 GCLOUD_PROJECT=demo-neon-snake npm run dev -w backend` in another, and the game Vite command below in a third terminal. Stop only the API, play a round, then restart it. The game stays playable; queued events retry, and duplicate delivery does not increase counts.
+To verify outage recovery independently, run `npm run emulators` in one terminal, `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 GCLOUD_PROJECT=demo-neon-snake npm run dev -w backend` in another, and the two Vite commands below in separate terminals. Stop only the API, play a round, then restart it. The game stays playable; queued events retry, and duplicate delivery does not increase counts.
 
 ```sh
+npm run dev -w dashboard
 npm run dev:local -w neon-snake-main
 ```
 
@@ -44,19 +46,20 @@ Do not run this separate-terminal setup alongside `npm run dev`; they use the sa
 Automated checks:
 
 ```sh
-npm test                  # backend unit tests + real game/transport tests
+npm test                  # backend, dashboard polling, and game/transport tests
 npm run test:integration  # fresh, isolated Firestore emulator; no mocked database
-npm run build             # game TypeScript check and build
-npm run format:check      # new backend/docs formatting
+npm run build             # React build + game TypeScript check and build
+npm run format:check      # new backend/dashboard/docs formatting
 ```
 
-The integration suite uses project `demo-neon-snake-test`, Firestore 8081, hub 4401, logging 4501 and websocket 9151. It imports no development data and never clears your development emulator. It covers real controller → retry transport → HTTP API → Firestore → aggregation response, concurrent deduplication, immutable event IDs, transaction rollback, out-of-order repair, filters/metrics, HTTP validation, and denying direct browser database access. Game tests also exercise actual simulation playthroughs of all three levels, lifecycle failures, and analytics isolation. No browser automation installation is required by these tests.
+The integration suite uses project `demo-neon-snake-test`, Firestore 8081, hub 4401, logging 4501 and websocket 9151. It imports no development data and never clears your development emulator. It covers real controller → retry transport → HTTP API → Firestore → dashboard, concurrent deduplication, immutable event IDs, transaction rollback, out-of-order repair, filters/metrics, HTTP validation, and denying direct browser database access. Game tests also exercise actual simulation playthroughs of all three levels, lifecycle failures, and analytics isolation. No browser automation installation is required by these tests.
 
 ## Architecture and decisions
 
 ```text
 neon-snake-main/       Existing Phaser/TypeScript game + analytics outbox
 backend/src/          Express API, Zod validation, Firestore transactions and queries
+dashboard/src/        React dashboard; polls the API every 5 seconds
 backend/test/         Contract/unit tests and real emulator integration tests
 scripts/seed.js       Repeatable sample events submitted through the API
 firebase*.json        Local and isolated test emulator configuration
@@ -67,7 +70,7 @@ The game already had typed version-1 events and a bounded Famobi storage journal
 
 The root local command explicitly selects the checked-in, non-secret `.env.local-demo`, enabling a small **offline platform adapter**. It provides local saves and no-op platform/ad callbacks. This is an explicit development mode, not a silent SDK-failure fallback. `npm run dev -w neon-snake-main` and the default production game build still load the official Famobi SDK before game initialization, with the existing error handling. Local mode does not validate real Famobi ads or portal behavior. See [the game README](neon-snake-main/README.md) for those details.
 
-The game uses Vite's same-origin `/api` proxy. It does not import Firebase or receive privileged credentials. The backend binds to `127.0.0.1`, requires a loopback `FIRESTORE_EMULATOR_HOST` and a `demo-` project ID, and fails closed otherwise. It never loads a service-account file. Firestore rules deny all direct client reads/writes; the backend Admin SDK is the trusted writer. This follows Firebase's documented [demo-project and Admin SDK emulator connection](https://firebase.google.com/docs/emulator-suite/connect_firestore) workflow.
+The dashboard and game use Vite's same-origin `/api` proxy. Neither imports Firebase or receives privileged credentials. The backend binds to `127.0.0.1`, requires a loopback `FIRESTORE_EMULATOR_HOST` and a `demo-` project ID, and fails closed otherwise. It never loads a service-account file. Firestore rules deny all direct client reads/writes; the backend Admin SDK is the trusted writer. This follows Firebase's documented [demo-project and Admin SDK emulator connection](https://firebase.google.com/docs/emulator-suite/connect_firestore) workflow.
 
 ### API contract
 
@@ -128,15 +131,24 @@ attempts/{attemptId}/events/{sequence}
   receivedAt                         server Unix milliseconds
 ```
 
-Every ingestion transaction reads existing attempt events, checks duplicates/conflicts, then writes new immutable event documents and the recomputed attempt summary together. Firestore retries concurrent conflicts, so parallel identical requests still count once. With this game's three finite levels, an attempt has at most 11 events. The stored projection lets the aggregation endpoint avoid scanning every raw event. It can be rebuilt from the raw history.
+Every ingestion transaction reads existing attempt events, checks duplicates/conflicts, then writes new immutable event documents and the recomputed attempt summary together. Firestore retries concurrent conflicts, so parallel identical requests still count once. With this game's three finite levels, an attempt has at most 11 events. The stored projection prevents the dashboard from scanning every raw event. It can be rebuilt from the raw history.
 
 Out-of-order delivery and missing starts/progress are accepted: the highest sequence supplies the latest measurements, an observed end determines the outcome, and late events can repair `completeHistory`. A missing end means `unknown`, never an assumed failure or quit. A completed attempt may still have a partial history. No composite indexes are required for the current single-field query.
 
-### Data preparation for the frontend
+### Dashboard preparation
 
-The backend queries attempts by **first server receipt** in the selected rolling window, orders newest first, then applies the level filter. This prevents client clock skew from changing the cohort. Late end events update their original attempt's cohort, not today's cohort. Queries examine at most 5,000 attempts (fetching one extra to detect truncation); if this limit is reached, the response explicitly identifies the sample with `truncated: true`. Level filtering happens after this cap.
+The overview shows attempt volume, completion rate, average duration, and average level score, followed by a short plain-language summary. These answer how much activity there is, how often attempts succeed, and how much time and progress an attempt involves. Attempts are not unique players; the data does not support retention or player-count claims.
 
-Completion rate is `completed / (completed + failed + left)`. Unknown outcomes are excluded. Mean duration and mean **level-only** score use ended attempts only, avoiding double counting cumulative scores across levels. Zero denominators return null so a frontend can distinguish missing data from zero. Duration includes pauses. The latest 50 attempts include last-observed duration for unknown attempts, reasons, event counts, and history completeness. The API includes query metadata and generation time so a frontend can label the result and its freshness.
+The two charts serve different questions:
+
+- **Attempt outcomes** uses a proportional stacked bar to show the balance of completed, failed, left, and unknown attempts. Explicit counts and percentages make the segments readable without relying on color. It distinguishes recorded failures and early exits from missing end events.
+- **Level performance** compares completion rates on the same labelled 0–100% scale, helping identify levels that may merit difficulty tuning. Every bar includes completed/ended counts so a high rate from a tiny sample is not presented without context. Levels with no ended attempts show an em dash and a patterned empty track, rather than suggesting a measured 0% rate. This is a comparison of attempt cohorts, not a player progression funnel.
+
+Period and level controls apply to all metrics, charts, and recent attempts together. The layout adapts to narrow screens, the activity table can scroll with keyboard focus, and charts expose textual values to assistive technology. No external charting library or third-party browser requests are needed.
+
+The backend queries attempts by **first server receipt** in the selected rolling window, orders newest first, then applies the level filter. This prevents client clock skew from changing the cohort. Late end events update their original attempt's cohort, not today's cohort. Queries examine at most 5,000 attempts (fetching one extra to detect truncation); if this limit is reached, the response and UI explicitly identify the sample. Level filtering happens after this cap.
+
+Completion rate is `completed / (completed + failed + left)`. Unknown outcomes are excluded. Mean duration and mean **level-only** score use ended attempts only, avoiding double counting cumulative scores across levels. Zero denominators return null and render as an em dash. Duration includes pauses. The latest 50 attempts show last-observed duration for unknown attempts, reasons, event counts, and history completeness. Loading, empty, error, stale-data, and truncated-data states are visible; obsolete filter requests are aborted. Background and manual refresh keep the last successful result visible on failure; changing filters clears the previous cohort. Requests time out after ten seconds and retry five seconds after finishing. Dashboard tests cover polling, timeout/recovery, stale-data retention, malformed responses, and cancellation of late responses.
 
 ### Delivery, assumptions, and limitations
 
@@ -144,7 +156,7 @@ Completion rate is `completed / (completed + failed + left)`. Unknown outcomes a
 - Departure uses best-effort `fetch(..., { keepalive: true })` for up to 50 queued events. Those events remain in the outbox until a normal acknowledged retry. Idempotent ingestion handles that duplicate safely. This is not a guarantee of delivery: queue eviction, blocked storage, abrupt process termination, multiple tabs writing the same localStorage key, or never returning can lose events. No background service worker is included.
 - Each level entry/retry is an attempt. There are no player identifiers, sessions spanning levels, device metadata, leaderboards, or retention metrics. The game sends progress per fruit, not per frame.
 - This is a loopback-only, unauthenticated local development service. Origin checks and body/schema bounds are included; authentication, per-client rate limiting, retention/TTL, production authorization and anti-cheat are intentionally outside scope. Firestore emulator behavior is not proof of production performance or security readiness.
-- The aggregation endpoint scans a bounded set and is intended for small local datasets. It does not offer raw-event export or pagination beyond its latest 50 attempts. A dashboard can consume this API in a later change.
+- The dashboard polls, scans a bounded set, and is intended for small local datasets. It does not offer raw-event export or pagination beyond its latest 50 rows.
 - Firebase CLI is pinned for reproducibility/Java 17 compatibility; its transitive dependencies can emit deprecation/engine warnings on newer Node versions. The existing Phaser bundle produces a size warning. Neither prevented the verified checks.
 
 ## With more time
@@ -153,4 +165,4 @@ Move the outbox to IndexedDB with cross-tab coordination, retry jitter, and obse
 
 ## Material use of external tools
 
-OpenAI Codex materially assisted with the backend/API and schema design, game transport and local adapter, emulator configuration, test implementation, documentation, and debugging. Its terminal tools ran npm/Node/Firebase tests and builds; its browser tools verified local gameplay and event delivery. Firebase's official documentation was consulted for demo-project and Admin SDK emulator behavior. Dependencies come from npm, and the emulator comes from Firebase's official download service. The supplied game and its existing SDK integration were used as the starting point. No credentials or private datasets were needed. This disclosure describes the development assistance; the code and technical decisions remain reviewable and modifiable in this repository.
+OpenAI Codex materially assisted with the backend/API and schema design, React dashboard, game transport and local adapter, emulator configuration, test implementation, documentation, and debugging. Its terminal tools ran npm/Node/Firebase tests and builds; its browser tools verified the local UI. Firebase's official documentation was consulted for demo-project and Admin SDK emulator behavior. Dependencies come from npm, and the emulator comes from Firebase's official download service. The supplied game and its existing SDK integration were used as the starting point. No credentials or private datasets were needed. This disclosure describes the development assistance; the code and technical decisions remain reviewable and modifiable in this repository.

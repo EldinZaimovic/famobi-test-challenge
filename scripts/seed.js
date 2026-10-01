@@ -24,5 +24,5 @@ for (let i = 0; i < events.length; i += 40) {
   console.log(await response.json());
 }
 console.log(
-  "12 sample attempts available at http://127.0.0.1:3001/api/dashboard?days=all. Period filters use server receipt time.",
+  "12 sample attempts available at http://127.0.0.1:5173. Period filters use server receipt time.",
 );
