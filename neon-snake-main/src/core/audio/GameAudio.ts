@@ -31,6 +31,7 @@ const tones: Record<AudioCue, Tone[]> = {
 export class GameAudio {
   private context: AudioContext | null = null;
   private playerMuted: boolean;
+  private activeOscillators = new Set<OscillatorNode>();
   private systemMuted = false;
 
   constructor(initialPlayerMuted: boolean) {
@@ -47,10 +48,12 @@ export class GameAudio {
 
   setPlayerMuted(muted: boolean): void {
     this.playerMuted = muted;
+    this.stopMutedAudio();
   }
 
   setSystemMuted(muted: boolean): void {
     this.systemMuted = muted;
+    this.stopMutedAudio();
   }
 
   play(cue: AudioCue): void {
@@ -74,10 +77,18 @@ export class GameAudio {
       gain.gain.exponentialRampToValueAtTime(0.0001, endsAt);
       oscillator.connect(gain);
       gain.connect(context.destination);
+      this.activeOscillators.add(oscillator);
+      oscillator.onended = () => this.activeOscillators.delete(oscillator);
       oscillator.start(startsAt);
       oscillator.stop(endsAt + 0.01);
       offset += tone.duration;
     });
+  }
+
+  private stopMutedAudio(): void {
+    if (!this.isEffectivelyMuted) return;
+    this.activeOscillators.forEach((oscillator) => oscillator.stop());
+    this.activeOscillators.clear();
   }
 
   dispose(): void {

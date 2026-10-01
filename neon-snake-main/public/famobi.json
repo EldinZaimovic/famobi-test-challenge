@@ -1,0 +1,9 @@
+{
+  "maxLevels": 3,
+  "ads": {
+    "interstitial": {
+      "eventIds": ["button:game:start", "button:game:pause", "button:game:resume"]
+    },
+    "rewarded": { "eventIds": [] }
+  }
+}

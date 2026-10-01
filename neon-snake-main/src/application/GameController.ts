@@ -1,3 +1,4 @@
+import type { GamePlatform } from '../platform/GamePlatform';
 import { GameAudio } from '../core/audio/GameAudio';
 import { EventBus } from '../core/events/EventBus';
 import type { GameStorage, PlayerProfile } from '../core/storage/GameStorage';
@@ -6,36 +7,34 @@ import { SnakeGame } from '../game/snakeGame';
 import type { Direction, GameListener, GameSnapshot, PauseSource } from '../game/types';
 import type { GameEventMap, RunEndReason } from './gameEvents';
 
-const beginsRun = (previous: GameSnapshot, next: GameSnapshot): boolean =>
-  next.phase === 'playing' && ['menu', 'level-complete', 'game-over', 'finished'].includes(previous.phase);
-
-const terminalReason = (snapshot: GameSnapshot): RunEndReason | null => {
-  if (snapshot.phase === 'level-complete' || snapshot.phase === 'finished') return 'complete';
-  if (snapshot.phase === 'game-over') return 'fail';
-  if (snapshot.phase === 'menu') return 'quit';
-  return null;
-};
+type Transition = 'starting' | 'ending' | 'pausing' | 'resuming';
 
 export class GameController {
   readonly events = new EventBus<GameEventMap>();
 
   private readonly audio: GameAudio;
+  private readonly unsubscribe: () => void;
   private profile: PlayerProfile;
   private previousSnapshot: GameSnapshot;
-  private runStartedAt: number | null = null;
+  private run: { startedAt: number; initialScore: number } | null = null;
   private playerPauseActive = false;
   private systemPauseActive = false;
   private systemMuted = false;
   private ready = false;
+  private pendingTransition: Transition | null = null;
+  private transitionError: string | null = null;
+  private listeners = new Set<GameListener>();
 
   constructor(
     private readonly simulation: SnakeGame,
-    private readonly storage: GameStorage
+    private readonly storage: GameStorage,
+    private readonly platform: GamePlatform,
+    private readonly playerPauseEnabled = true
   ) {
     this.profile = storage.loadProfile();
     this.audio = new GameAudio(this.profile.playerMuted);
     this.previousSnapshot = simulation.getSnapshot();
-    simulation.subscribe(this.handleSnapshot);
+    this.unsubscribe = simulation.subscribe(this.handleSnapshot);
   }
 
   getSnapshot(): GameSnapshot {
@@ -55,84 +54,192 @@ export class GameController {
   }
 
   subscribe(listener: GameListener): () => void {
-    return this.simulation.subscribe(listener);
+    this.listeners.add(listener);
+    listener(this.getSnapshot());
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   markReady(): void {
     if (this.ready) return;
     this.ready = true;
+    this.notify();
     this.events.emit('ready', { occurredAt: Date.now() });
+    this.platform.ready();
   }
 
-  startNewGame(): void {
-    this.resetPauseState();
-    this.simulation.start();
-    this.audio.play('start');
+  isReady(): boolean {
+    return this.ready;
+  }
+  isBusy(): boolean {
+    return this.pendingTransition !== null;
+  }
+  getTransitionError(): string | null {
+    return this.transitionError;
+  }
+  isSystemPaused(): boolean {
+    return this.systemPauseActive;
   }
 
-  startAtLevel(level: number): void {
-    const highestAllowedLevel = Math.min(this.profile.highestUnlockedLevel, LEVELS.length);
-    if (!Number.isInteger(level) || level < 1 || level > highestAllowedLevel) return;
-    this.goToLevel(level);
+  canAdvance(): boolean {
+    return (
+      this.ready &&
+      !this.transitionError &&
+      !this.systemPauseActive &&
+      this.getSnapshot().phase === 'playing' &&
+      (this.pendingTransition === null || this.pendingTransition === 'pausing')
+    );
   }
 
-  goToLevel(level: number): void {
-    if (!Number.isInteger(level) || level < 1 || level > LEVELS.length) return;
-    const snapshot = this.simulation.getSnapshot();
-    if (snapshot.phase === 'playing' || snapshot.phase === 'paused') this.simulation.quitToMenu();
-    this.resetPauseState();
-    this.simulation.startAtLevel(level);
-    this.audio.play('start');
+  startNewGame(): Promise<void> {
+    return this.startRun(1, () => this.simulation.start());
   }
 
-  restartLevel(): void {
-    const snapshot = this.simulation.getSnapshot();
-    if (snapshot.phase === 'playing' || snapshot.phase === 'paused') this.simulation.quitToMenu();
-    this.resetPauseState();
-    this.simulation.restartLevel();
-    this.audio.play('start');
+  startAtLevel(level: number): Promise<void> {
+    if (level > this.profile.highestUnlockedLevel) return Promise.resolve();
+    return this.goToLevel(level);
   }
 
-  goToNextLevel(): void {
-    const snapshot = this.simulation.getSnapshot();
-    if (snapshot.phase === 'playing' || snapshot.phase === 'paused') {
-      this.goToLevel(Math.min(LEVELS.length, snapshot.level + 1));
-      return;
-    }
-    this.resetPauseState();
-    this.simulation.nextLevel();
-    this.audio.play('start');
+  goToLevel(level: number): Promise<void> {
+    if (!Number.isInteger(level) || level < 1 || level > LEVELS.length) return Promise.resolve();
+    return this.startRun(level, () => this.simulation.startAtLevel(level));
   }
 
-  quitToMenu(): void {
-    this.resetPauseState();
-    this.simulation.quitToMenu();
+  restartLevel(): Promise<void> {
+    return this.startRun(this.getSnapshot().level, () => this.simulation.restartLevel());
   }
 
-  forceGameOver(): void {
-    this.resetPauseState();
-    this.simulation.forceGameOver();
+  goToNextLevel(): Promise<void> {
+    const snapshot = this.getSnapshot();
+    if (snapshot.phase !== 'level-complete') return Promise.resolve();
+    return this.startRun(snapshot.level + 1, () => this.simulation.nextLevel());
+  }
+
+  quitToMenu(): Promise<void> {
+    return this.transition('ending', async () => {
+      await this.endRun('quit');
+      this.playerPauseActive = false;
+      this.simulation.quitToMenu();
+    });
+  }
+
+  forceGameOver(): Promise<void> {
+    return this.transition('ending', async () => {
+      this.simulation.forceGameOver();
+      await this.finishLevel();
+    });
   }
 
   move(direction: Direction): void {
-    this.simulation.setDirection(direction);
+    if (this.canAdvance()) this.simulation.setDirection(direction);
   }
 
   tick(): void {
+    if (!this.canAdvance()) return;
     this.simulation.step();
+    if (this.getSnapshot().phase !== 'playing' && !this.isBusy()) {
+      void this.transition('ending', () => this.finishLevel());
+    }
   }
 
-  togglePlayerPause(): void {
-    const snapshot = this.simulation.getSnapshot();
-    if (snapshot.phase !== 'playing' && snapshot.phase !== 'paused') return;
-    this.playerPauseActive = !this.playerPauseActive;
-    this.reconcilePauseState();
+  togglePlayerPause(): Promise<void> {
+    const phase = this.getSnapshot().phase;
+    if (!this.playerPauseEnabled || this.systemPauseActive || (phase !== 'playing' && phase !== 'paused')) {
+      return Promise.resolve();
+    }
+    const paused = !this.playerPauseActive;
+    return this.transition(paused ? 'pausing' : 'resuming', async () => {
+      if (paused) await this.platform.pause();
+      else await this.platform.resume();
+      // The snake can finish or collide while a pause acknowledgment is pending.
+      await this.finishLevel();
+      if (!this.run) return;
+      this.playerPauseActive = paused;
+      this.reconcilePauseState();
+    });
+  }
+
+  private startRun(level: number, start: () => void): Promise<void> {
+    if (this.systemPauseActive) return Promise.resolve();
+    return this.transition('starting', async () => {
+      await this.endRun('quit');
+      await this.platform.start(level);
+      this.playerPauseActive = false;
+      start();
+      const snapshot = this.getSnapshot();
+      this.run = { startedAt: Date.now(), initialScore: snapshot.score };
+      this.profile = { ...this.profile, totalRuns: this.profile.totalRuns + 1 };
+      this.storage.saveProfile(this.profile);
+      this.platform.score(snapshot.score, level);
+      this.platform.progress(0);
+      this.events.emit('runStarted', {
+        level,
+        runNumber: this.profile.totalRuns,
+        occurredAt: this.run.startedAt
+      });
+      // Starting must preserve an external pause received during the SDK call.
+      this.reconcilePauseState();
+      this.audio.play('start');
+    });
+  }
+
+  private async endRun(reason: RunEndReason): Promise<void> {
+    if (!this.run) return;
+    const snapshot = this.getSnapshot();
+    const durationMs = Math.max(0, Date.now() - this.run.startedAt);
+    const levelScore = snapshot.score - this.run.initialScore;
+    this.run = null;
+    await this.platform.end(reason, snapshot, durationMs, levelScore);
+    if (reason === 'complete') {
+      this.profile.highestUnlockedLevel = Math.max(
+        this.profile.highestUnlockedLevel,
+        Math.min(LEVELS.length, snapshot.level + 1)
+      );
+      this.storage.saveProfile(this.profile);
+      this.audio.play(snapshot.phase === 'finished' ? 'finished' : 'level-complete');
+    } else if (reason === 'fail') {
+      this.audio.play('game-over');
+    }
+    this.events.emit('runEnded', {
+      level: snapshot.level,
+      score: snapshot.score,
+      progress: snapshot.progress,
+      reason,
+      durationMs,
+      occurredAt: Date.now()
+    });
+    if (snapshot.phase === 'finished') {
+      this.events.emit('gameFinished', { score: snapshot.score, bestScore: this.profile.bestScore });
+    }
+  }
+
+  private async finishLevel(): Promise<void> {
+    const phase = this.getSnapshot().phase;
+    if (phase === 'game-over') await this.endRun('fail');
+    else if (phase === 'level-complete' || phase === 'finished') await this.endRun('complete');
+  }
+
+  private async transition(kind: Transition, action: () => Promise<void>): Promise<void> {
+    if (!this.ready || this.isBusy() || this.transitionError) return;
+    this.pendingTransition = kind;
+    this.notify();
+    try {
+      await action();
+    } catch (error) {
+      console.error('Game transition failed', error);
+      this.transitionError = 'The game connection was interrupted. Reload to try again.';
+    } finally {
+      this.pendingTransition = null;
+      this.notify();
+    }
   }
 
   setSystemPaused(paused: boolean): void {
     if (this.systemPauseActive === paused) return;
     this.systemPauseActive = paused;
     this.reconcilePauseState();
+    this.notify();
   }
 
   togglePlayerMuted(): void {
@@ -143,48 +250,43 @@ export class GameController {
     if (this.audio.isPlayerMuted === muted) return;
     this.audio.setPlayerMuted(muted);
     this.profile = { ...this.profile, playerMuted: muted };
-    this.persistProfile();
-    this.emitAudioState();
+    this.storage.saveProfile(this.profile);
+    this.events.emit('audioChanged', this.getAudioState());
+    this.platform.muted(muted);
   }
 
   setSystemMuted(muted: boolean): void {
     if (this.systemMuted === muted) return;
     this.systemMuted = muted;
     this.audio.setSystemMuted(muted);
-    this.emitAudioState();
+    this.events.emit('audioChanged', this.getAudioState());
   }
 
   dispose(): void {
+    this.unsubscribe();
     this.audio.dispose();
     this.events.clear();
+    this.listeners.clear();
   }
 
   private handleSnapshot = (snapshot: GameSnapshot): void => {
     const previous = this.previousSnapshot;
-    const now = Date.now();
-
-    if (beginsRun(previous, snapshot)) {
-      this.runStartedAt = now;
-      this.profile = { ...this.profile, totalRuns: this.profile.totalRuns + 1 };
-      this.persistProfile();
-      this.events.emit('runStarted', {
-        level: snapshot.level,
-        runNumber: this.profile.totalRuns,
-        occurredAt: now
-      });
-    }
+    this.previousSnapshot = snapshot;
+    // Start/reset values are reported explicitly by startRun after SDK acknowledgment.
+    if (this.pendingTransition === 'starting') return;
 
     if (snapshot.score !== previous.score) {
       const delta = snapshot.score - previous.score;
       if (delta > 0) this.audio.play('fruit');
       if (snapshot.score > this.profile.bestScore) {
         this.profile = { ...this.profile, bestScore: snapshot.score };
-        this.persistProfile();
+        this.storage.saveProfile(this.profile);
       }
+      this.platform.score(snapshot.score, snapshot.level);
       this.events.emit('scoreChanged', { level: snapshot.level, score: snapshot.score, delta });
     }
-
     if (snapshot.progress !== previous.progress || snapshot.level !== previous.level) {
+      this.platform.progress(snapshot.progress);
       this.events.emit('progressChanged', {
         level: snapshot.level,
         progress: snapshot.progress,
@@ -192,70 +294,25 @@ export class GameController {
         target: snapshot.target
       });
     }
-
-    const endReason = terminalReason(snapshot);
-    const previousWasActive = previous.phase === 'playing' || previous.phase === 'paused';
-    if (endReason && previousWasActive && this.runStartedAt !== null) {
-      this.events.emit('runEnded', {
-        level: previous.level,
-        score: snapshot.score,
-        progress: endReason === 'complete' ? 1 : previous.progress,
-        reason: endReason,
-        durationMs: Math.max(0, now - this.runStartedAt),
-        occurredAt: now
-      });
-      this.runStartedAt = null;
-
-      if (endReason === 'complete') {
-        const highestUnlockedLevel = Math.min(LEVELS.length, snapshot.level + 1);
-        if (highestUnlockedLevel > this.profile.highestUnlockedLevel) {
-          this.profile = { ...this.profile, highestUnlockedLevel };
-          this.persistProfile();
-        }
-        this.audio.play(snapshot.phase === 'finished' ? 'finished' : 'level-complete');
-      } else if (endReason === 'fail') {
-        this.audio.play('game-over');
-      }
+    if (
+      snapshot.pauseSource !== previous.pauseSource ||
+      (snapshot.phase === 'paused') !== (previous.phase === 'paused')
+    ) {
+      this.events.emit('pauseChanged', { paused: snapshot.phase === 'paused', source: snapshot.pauseSource });
     }
-
-    const pauseChanged = snapshot.phase === 'paused' !== (previous.phase === 'paused');
-    const pauseSourceChanged = snapshot.pauseSource !== previous.pauseSource;
-    if (pauseChanged || pauseSourceChanged) {
-      this.events.emit('pauseChanged', {
-        paused: snapshot.phase === 'paused',
-        source: snapshot.pauseSource
-      });
-    }
-
-    if (snapshot.phase === 'finished' && previous.phase !== 'finished') {
-      this.events.emit('gameFinished', { score: snapshot.score, bestScore: this.profile.bestScore });
-    }
-
-    this.previousSnapshot = snapshot;
     this.events.emit('stateChanged', snapshot);
+    // tick() reports natural endings before the UI displays their result screen.
+    if (snapshot.phase === 'playing' || snapshot.phase === 'paused' || !this.run) this.notify();
   };
 
   private reconcilePauseState(): void {
-    const pauseSource: Exclude<PauseSource, null> | null = this.systemPauseActive
-      ? 'system'
-      : this.playerPauseActive
-        ? 'player'
-        : null;
-
-    if (pauseSource) this.simulation.pause(pauseSource);
+    const source: PauseSource = this.systemPauseActive ? 'system' : this.playerPauseActive ? 'player' : null;
+    if (source) this.simulation.pause(source);
     else this.simulation.resume();
   }
 
-  private resetPauseState(): void {
-    this.playerPauseActive = false;
-    this.systemPauseActive = false;
-  }
-
-  private persistProfile(): void {
-    this.storage.saveProfile(this.profile);
-  }
-
-  private emitAudioState(): void {
-    this.events.emit('audioChanged', this.getAudioState());
+  private notify(): void {
+    const snapshot = this.getSnapshot();
+    this.listeners.forEach((listener) => listener(snapshot));
   }
 }

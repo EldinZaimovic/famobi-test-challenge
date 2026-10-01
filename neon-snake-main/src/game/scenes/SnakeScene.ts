@@ -36,12 +36,12 @@ export class SnakeScene extends Phaser.Scene {
       this.draw(snapshot);
       this.syncTimer(snapshot);
     });
-    this.controller.markReady();
 
     this.input.keyboard?.on('keydown', this.handleKeyDown);
     this.input.on('pointerdown', this.handlePointerDown);
     this.input.on('pointerup', this.handlePointerUp);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
+    this.controller.markReady();
   }
 
   private handleKeyDown = (event: KeyboardEvent): void => {
@@ -59,12 +59,13 @@ export class SnakeScene extends Phaser.Scene {
 
     const snapshot = this.controller.getSnapshot();
     if (action.type === 'pause') {
-      this.controller.togglePlayerPause();
+      void this.controller.togglePlayerPause();
       return;
     }
 
     if (snapshot.phase === 'menu' || snapshot.phase === 'finished') this.controller.startNewGame();
-    else if (snapshot.phase === 'paused' && snapshot.pauseSource === 'player') this.controller.togglePlayerPause();
+    else if (snapshot.phase === 'paused' && snapshot.pauseSource === 'player')
+      this.controller.togglePlayerPause();
     else if (snapshot.phase === 'level-complete') this.controller.goToNextLevel();
     else if (snapshot.phase === 'game-over') this.controller.restartLevel();
   }
@@ -82,7 +83,7 @@ export class SnakeScene extends Phaser.Scene {
   };
 
   private syncTimer(snapshot: GameSnapshot): void {
-    if (snapshot.phase !== 'playing') {
+    if (!this.controller.canAdvance()) {
       this.stopTimer();
       return;
     }
@@ -143,7 +144,12 @@ export class SnakeScene extends Phaser.Scene {
     this.graphics.fillStyle(palette.fruit, 1);
     this.graphics.fillCircle(centerX, centerY, radius);
     this.graphics.lineStyle(Math.max(2, cell * 0.08), palette.fruitStem, 1);
-    this.graphics.lineBetween(centerX, centerY - radius * 0.75, centerX + radius * 0.28, centerY - radius * 1.35);
+    this.graphics.lineBetween(
+      centerX,
+      centerY - radius * 0.75,
+      centerX + radius * 0.28,
+      centerY - radius * 1.35
+    );
   }
 
   private drawSnake(snapshot: GameSnapshot, cell: number): void {

@@ -8,10 +8,11 @@
       name="description"
       content="Neon Snake, a compact browser game built with Phaser and TypeScript."
     />
+    <script src="https://api.games.famobi.com/init.js"></script>
     <title>Neon Snake</title>
   </head>
   <body>
-    <main class="game-shell">
+    <main class="game-shell" inert>
       <header class="game-header">
         <a class="brand" href="./" aria-label="Neon Snake home">
           <span class="brand-mark" aria-hidden="true"></span>
@@ -85,6 +86,6 @@
       </section>
     </main>
 
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/bootstrap.ts"></script>
   </body>
 </html>

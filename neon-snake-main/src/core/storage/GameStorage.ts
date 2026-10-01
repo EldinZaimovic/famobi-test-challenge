@@ -1,3 +1,5 @@
+import type { FamobiSdk } from '../../platform/FamobiSdk';
+
 export type PlayerProfile = {
   bestScore: number;
   highestUnlockedLevel: number;
@@ -17,15 +19,17 @@ const defaultProfile = (): PlayerProfile => ({
   playerMuted: false
 });
 
-export class LocalGameStorage implements GameStorage {
+export class FamobiGameStorage implements GameStorage {
   private readonly storageKey = 'neon-snake:profile';
+
+  constructor(private readonly storage: FamobiSdk['storage']) {}
 
   loadProfile(): PlayerProfile {
     try {
-      const storedProfile = window.localStorage.getItem(this.storageKey);
+      const storedProfile = this.storage.getItem(this.storageKey);
       if (!storedProfile) return defaultProfile();
 
-      const value = JSON.parse(storedProfile) as Partial<PlayerProfile>;
+      const value = (typeof storedProfile === 'string' ? JSON.parse(storedProfile) : storedProfile) as Partial<PlayerProfile>;
       return {
         bestScore: this.nonNegativeInteger(value.bestScore, 0),
         highestUnlockedLevel: Math.min(3, Math.max(1, this.nonNegativeInteger(value.highestUnlockedLevel, 1))),
@@ -39,7 +43,7 @@ export class LocalGameStorage implements GameStorage {
 
   saveProfile(profile: PlayerProfile): void {
     try {
-      window.localStorage.setItem(this.storageKey, JSON.stringify(profile));
+      this.storage.setItem(this.storageKey, JSON.stringify(profile));
     } catch {
       // The game remains playable when browser storage is unavailable.
     }
