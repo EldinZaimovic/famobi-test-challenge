@@ -7,7 +7,11 @@ import { FamobiGameStorage } from '../src/core/storage/GameStorage.ts';
 import { GameAudio } from '../src/core/audio/GameAudio.ts';
 import { GameplayAnalytics } from '../src/core/analytics/GameplayAnalytics.ts';
 import { HttpAnalyticsSink } from '../src/platform/HttpAnalyticsSink.ts';
-import { FamobiAnalyticsStorage, ANALYTICS_STORAGE_KEY, ANALYTICS_EVENT_LIMIT } from '../src/platform/FamobiAnalyticsStorage.ts';
+import {
+  FamobiAnalyticsStorage,
+  ANALYTICS_STORAGE_KEY,
+  ANALYTICS_EVENT_LIMIT
+} from '../src/platform/FamobiAnalyticsStorage.ts';
 
 global.window = {};
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -58,7 +62,10 @@ function fixture({ playerPauseEnabled = true, analyticsSink, analyticsRuntime } 
     };
   const simulation = new SnakeGame();
   const platform = new FamobiPlatform(sdk);
-  const analytics = new GameplayAnalytics(analyticsSink ?? new FamobiAnalyticsStorage(sdk.storage), analyticsRuntime);
+  const analytics = new GameplayAnalytics(
+    analyticsSink ?? new FamobiAnalyticsStorage(sdk.storage),
+    analyticsRuntime
+  );
   const controller = new GameController(
     simulation,
     new FamobiGameStorage(sdk.storage),
@@ -327,14 +334,38 @@ test('plays all three real levels: live/level/total scores, progress, unlocks an
     const starts = records.filter((e) => e.name === 'gameplay_started');
     const ends = records.filter((e) => e.name === 'gameplay_ended');
     assert.equal(new Set(starts.map((e) => e.attemptId)).size, 3);
-    assert.deepEqual(ends.map((e) => e.attemptId), starts.map((e) => e.attemptId));
-    assert.deepEqual(ends.map((e) => e.level), [1, 2, 3]);
-    assert.deepEqual(ends.map((e) => e.outcome), ['completed', 'completed', 'completed']);
-    assert.deepEqual(ends.map((e) => e.levelScore), [50, 140, 270]);
-    assert.deepEqual(ends.map((e) => e.score), [50, 190, 460]);
-    assert.deepEqual(ends.map((e) => e.progress), [1, 1, 1]);
-    assert.deepEqual(starts.map((e) => e.progress), [0, 0, 0]);
-    assert.deepEqual(starts.map((e) => e.levelScore), [0, 0, 0]);
+    assert.deepEqual(
+      ends.map((e) => e.attemptId),
+      starts.map((e) => e.attemptId)
+    );
+    assert.deepEqual(
+      ends.map((e) => e.level),
+      [1, 2, 3]
+    );
+    assert.deepEqual(
+      ends.map((e) => e.outcome),
+      ['completed', 'completed', 'completed']
+    );
+    assert.deepEqual(
+      ends.map((e) => e.levelScore),
+      [50, 140, 270]
+    );
+    assert.deepEqual(
+      ends.map((e) => e.score),
+      [50, 190, 460]
+    );
+    assert.deepEqual(
+      ends.map((e) => e.progress),
+      [1, 1, 1]
+    );
+    assert.deepEqual(
+      starts.map((e) => e.progress),
+      [0, 0, 0]
+    );
+    assert.deepEqual(
+      starts.map((e) => e.levelScore),
+      [0, 0, 0]
+    );
     // One progress record per fruit, never per animation tick.
     assert.equal(records.filter((e) => e.name === 'gameplay_progress').length, 21);
     assert.equal(new Set(records.map((e) => e.eventId)).size, records.length);
@@ -568,16 +599,23 @@ test('initialization and module errors propagate to the bootstrap error screen',
 test('analytics captures occurrence time before SDK acknowledgment and uses monotonic duration', async () => {
   let wallTime = 1_800_000_000_000;
   let elapsed = 100;
-  const f = fixture({ analyticsRuntime: {
-    now: () => wallTime, monotonicNow: () => elapsed, id: () => 'attempt-1'
-  } });
+  const f = fixture({
+    analyticsRuntime: {
+      now: () => wallTime,
+      monotonicNow: () => elapsed,
+      id: () => 'attempt-1'
+    }
+  });
   await f.controller.startNewGame();
   const gate = deferred();
   f.sdk.gameEnd = () => gate.promise;
   wallTime -= 5000; // Changing the system clock cannot produce a negative duration.
   elapsed += 2500;
   const ending = f.controller.forceGameOver();
-  assert.deepEqual(f.recorded().map((e) => e.name), ['gameplay_started', 'gameplay_ended']);
+  assert.deepEqual(
+    f.recorded().map((e) => e.name),
+    ['gameplay_started', 'gameplay_ended']
+  );
   const end = f.recorded()[1];
   assert.equal(end.occurredAt, wallTime);
   assert.equal(end.durationMs, 2500);
@@ -604,17 +642,36 @@ test('analytics distinguishes restarts, replacements and menu exits with fresh a
   await f.controller.quitToMenu();
   f.controller.dispose();
   const records = f.recorded();
-  assert.deepEqual(records.map((e) => e.name), [
-    'gameplay_started', 'gameplay_ended', 'gameplay_started',
-    'gameplay_ended', 'gameplay_started', 'gameplay_ended'
-  ]);
+  assert.deepEqual(
+    records.map((e) => e.name),
+    [
+      'gameplay_started',
+      'gameplay_ended',
+      'gameplay_started',
+      'gameplay_ended',
+      'gameplay_started',
+      'gameplay_ended'
+    ]
+  );
   const starts = records.filter((e) => e.name === 'gameplay_started');
   const ends = records.filter((e) => e.name === 'gameplay_ended');
   assert.equal(new Set(starts.map((e) => e.attemptId)).size, 3);
-  assert.deepEqual(ends.map((e) => e.attemptId), starts.map((e) => e.attemptId));
-  assert.deepEqual(ends.map((e) => e.outcome), ['left', 'left', 'left']);
-  assert.deepEqual(ends.map((e) => e.leaveReason), ['restart', 'replaced', 'menu']);
-  assert.deepEqual(ends.map((e) => e.level), [1, 1, 2]);
+  assert.deepEqual(
+    ends.map((e) => e.attemptId),
+    starts.map((e) => e.attemptId)
+  );
+  assert.deepEqual(
+    ends.map((e) => e.outcome),
+    ['left', 'left', 'left']
+  );
+  assert.deepEqual(
+    ends.map((e) => e.leaveReason),
+    ['restart', 'replaced', 'menu']
+  );
+  assert.deepEqual(
+    ends.map((e) => e.level),
+    [1, 1, 2]
+  );
 });
 
 test('page departure captures the latest score/progress once, including paused runs', async () => {
@@ -679,11 +736,15 @@ test('collision during a pending pause is recorded immediately, even when the SD
 for (const asynchronous of [false, true]) {
   test(`analytics ${asynchronous ? 'async rejection' : 'exception'} cannot interrupt gameplay`, async () => {
     let writes = 0;
-    const f = fixture({ analyticsSink: { record() {
-      writes++;
-      if (asynchronous) return Promise.reject(new Error('Offline'));
-      throw new Error('Quota exceeded');
-    } } });
+    const f = fixture({
+      analyticsSink: {
+        record() {
+          writes++;
+          if (asynchronous) return Promise.reject(new Error('Offline'));
+          throw new Error('Quota exceeded');
+        }
+      }
+    });
     await f.controller.startNewGame();
     await f.controller.quitToMenu();
     await f.controller.startNewGame();
@@ -715,15 +776,20 @@ test('analytics journal survives recreation, recovers corrupt data and bounds re
 
 test('HTTP outbox retains failures, survives recreation, and only removes acknowledged events', async () => {
   const saved = new Map();
-  const storage = { getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value) };
+  const storage = { getItem: (key) => saved.get(key), setItem: (key, value) => saved.set(key, value) };
   const event = { eventId: 'attempt:1', name: 'gameplay_started' };
-  const offline = new HttpAnalyticsSink(storage, async () => { throw new Error('offline'); });
+  const offline = new HttpAnalyticsSink(storage, async () => {
+    throw new Error('offline');
+  });
   offline.record(event);
   await offline.flush();
   offline.dispose();
   assert.equal(JSON.parse(saved.get('neon-snake:outbox:v1')).length, 1);
   const requests = [];
-  const restored = new HttpAnalyticsSink(storage, async (_url, options) => { requests.push(JSON.parse(options.body)); return { ok: true, status: 200 }; });
+  const restored = new HttpAnalyticsSink(storage, async (_url, options) => {
+    requests.push(JSON.parse(options.body));
+    return { ok: true, status: 200 };
+  });
   await restored.flush();
   restored.dispose();
   assert.deepEqual(requests, [{ events: [event] }]);
@@ -732,7 +798,7 @@ test('HTTP outbox retains failures, survives recreation, and only removes acknow
 
 test('HTTP outbox drops only a poison event and bounds offline storage', async () => {
   const saved = new Map();
-  const storage = { getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value) };
+  const storage = { getItem: (key) => saved.get(key), setItem: (key, value) => saved.set(key, value) };
   const sink = new HttpAnalyticsSink(storage, async () => ({ ok: false, status: 400 }));
   for (let i = 0; i < 205; i++) sink.record({ eventId: `attempt:${i}` });
   assert.equal(JSON.parse(saved.get('neon-snake:outbox:v1')).length, 200);
@@ -746,7 +812,13 @@ test('HTTP outbox drops only a poison event and bounds offline storage', async (
 test('HTTP departure delivery retains events until an acknowledged retry', async () => {
   const saved = new Map();
   const requests = [];
-  const sink = new HttpAnalyticsSink({ getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value) }, async (_url, options) => { requests.push(options); return { ok: true, status: 200 }; });
+  const sink = new HttpAnalyticsSink(
+    { getItem: (key) => saved.get(key), setItem: (key, value) => saved.set(key, value) },
+    async (_url, options) => {
+      requests.push(options);
+      return { ok: true, status: 200 };
+    }
+  );
   sink.record({ eventId: 'attempt:1' });
   sink.flushOnDeparture();
   sink.dispose();
@@ -758,8 +830,14 @@ test('default HTTP transport preserves the native fetch calling context', async 
   const original = global.fetch;
   const saved = new Map();
   let receiver;
-  global.fetch = async function () { receiver = this; return { ok: true, status: 200 }; };
-  const sink = new HttpAnalyticsSink({ getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value) });
+  global.fetch = async function () {
+    receiver = this;
+    return { ok: true, status: 200 };
+  };
+  const sink = new HttpAnalyticsSink({
+    getItem: (key) => saved.get(key),
+    setItem: (key, value) => saved.set(key, value)
+  });
   try {
     sink.record({ eventId: 'attempt:1' });
     await sink.flush();

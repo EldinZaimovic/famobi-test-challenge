@@ -41,19 +41,27 @@ export function startGame(): void {
   const platform = new FamobiPlatform(sdk);
   const journal = new FamobiAnalyticsStorage(sdk.storage);
   const transport = new HttpAnalyticsSink({
-    getItem: key => localStorage.getItem(key),
+    getItem: (key) => localStorage.getItem(key),
     setItem: (key, value) => localStorage.setItem(key, value)
   });
   void transport.flush();
-  window.addEventListener('online', () => { void transport.flush(); });
+  window.addEventListener('online', () => {
+    void transport.flush();
+  });
   const controller = new GameController(
     simulation,
     new FamobiGameStorage(sdk.storage),
     platform,
     sdk.hasFeature('pause'),
-    new GameplayAnalytics({ record(event) {
-      try { journal.record(event); } finally { transport.record(event); }
-    } })
+    new GameplayAnalytics({
+      record(event) {
+        try {
+          journal.record(event);
+        } finally {
+          transport.record(event);
+        }
+      }
+    })
   );
   const disconnectPlatform = platform.connect(controller);
   const snakeScene = new SnakeScene(controller);

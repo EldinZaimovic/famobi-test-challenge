@@ -10,11 +10,11 @@ Each level entry or retry creates an independent attempt. The controller records
 typed, versioned events through `GameplayAnalytics`, independently of the existing
 Famobi lifecycle calls:
 
-| Event | Recorded when |
-| --- | --- |
-| `gameplay_started` | The SDK acknowledges the start and the level is initialized. Rejected or cancelled starts produce no attempt. |
-| `gameplay_progress` | Score or fruit progress changes; at most one event per fruit, never per frame. |
-| `gameplay_ended` | The level completes, fails, or is left through the menu, restart, level replacement, page departure, or disposal. |
+| Event               | Recorded when                                                                                                     |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `gameplay_started`  | The SDK acknowledges the start and the level is initialized. Rejected or cancelled starts produce no attempt.     |
+| `gameplay_progress` | Score or fruit progress changes; at most one event per fruit, never per frame.                                    |
+| `gameplay_ended`    | The level completes, fails, or is left through the menu, restart, level replacement, page departure, or disposal. |
 
 Every event contains `schemaVersion: 1`, a unique `eventId`, an `attemptId` shared
 by that attempt's events, `occurredAt` (Unix milliseconds), `level`, cumulative
@@ -38,7 +38,9 @@ the player's profile. Older events are discarded. Inspect them in the browser
 console after SDK initialization:
 
 ```js
-const events = JSON.parse(GameInterface.storage.getItem('neon-snake:analytics:v1') || '[]');
+const events = JSON.parse(
+  GameInterface.storage.getItem("neon-snake:analytics:v1") || "[]",
+);
 console.table(events);
 ```
 
@@ -61,29 +63,35 @@ contract, and how incomplete histories are displayed.
 
 ## Run locally
 
-For the complete offline game/backend/dashboard flow, run `npm ci` and
-`npm run dev` from the **repository root**. No hosted SDK is needed in that mode.
+Run `npm ci` and `npm run dev` from the **repository root** to start the game,
+backend, Firebase emulator, and dashboard together. The game always loads the
+real hosted Famobi SDK, including Famobi's local tester on localhost. Internet
+access is required for the SDK; Firebase needs no real project or credentials.
+There is no offline SDK adapter or fallback.
 
-For the real hosted Famobi SDK path, after the root install:
+To run only the game after the root install:
 
 ```bash
 npm run dev -w neon-snake-main
 ```
 
-The game uses port 5174. Start the backend separately if you want remote analytics
-in this mode. The older pnpm instructions below apply only to the original
-standalone SDK verification workflow, not the complete workspace.
-
-Then open the local URL printed by Vite.
+Open `http://127.0.0.1:5174`. Start the backend and emulator separately if you
+want analytics delivery in this game-only setup; see the root README.
 
 ## Checks
 
+Run these commands from the repository root:
+
 ```bash
-pnpm check
-pnpm test
-pnpm build
-pnpm preview
+npm test
+npm run test:integration
+npm run lint
+npm run format:check
+npm run build
 ```
+
+GitHub Actions runs these checks on every push and pull request. Prettier and
+ESLint include the game source and tests. `npm run format` applies formatting.
 
 ## Project structure
 
@@ -135,7 +143,7 @@ The implementation follows the current [start/loading](https://docs.famobi.com/s
 [game lifecycle](https://docs.famobi.com/game), [pause](https://docs.famobi.com/pause),
 and [API](https://docs.famobi.com/api) documentation.
 
-- `src/bootstrap.ts` loads the official `https://api.games.famobi.com/init.js` before initializing the game. In the explicit `local-demo` mode only, it loads the offline development adapter instead.
+- `src/bootstrap.ts` loads the official `https://api.games.famobi.com/init.js` before initializing the game.
 - `src/bootstrap.ts` calls `FamobiPlatform.initialize`, which passes a module-loading callback to `GameInterface.init`.
   Phaser, the game, and its CSS are imported only when the SDK invokes that callback.
   The adapter awaits both the init promise and the module import before constructing
@@ -155,19 +163,19 @@ and [API](https://docs.famobi.com/api) documentation.
 - SDK initialization failure displays a reload action. Rejected lifecycle calls freeze
   the run and show a reload action instead of silently continuing without acknowledgment.
 
-| Game moment | SDK event / behavior |
-| --- | --- |
-| Start, retry, selected or next level | Await `gameStart(level)` before starting simulation and timers. |
-| Fruit collected | `sendScore(score, {type: 'live', level})`; score is cumulative across the current playthrough. |
-| Level progress | `sendProgress(round(fruitEaten / target * 100))`; resets to 0 on every level start/retry and reaches 100 on completion. |
-| Level complete | Submit level-only and cumulative total scores, then await `gameEnd('complete')` before exposing results. |
-| Wall, body, obstacle, or external failure | Submit scores and await `gameEnd('fail')` before results/retry. |
-| Quit an active level or restart it | Await `gameEnd('quit')`; a restart then awaits a fresh `gameStart`. Leaving an already-ended result screen sends no duplicate end. |
-| All three levels cleared | Await the final `gameEnd('complete')`, then `gameFinished`, then display the final result. |
-| Player pause / resume | Await `gamePause` / `gameResume`. While pause acknowledgment is pending, movement and steering continue; duplicate transition commands are blocked. |
-| SDK pause | Freeze immediately, block input, show a passive interruption overlay; preserve a separate player pause flag and do not echo player pause events. |
-| SDK mute | Stop scheduled tones immediately; preserve the player's own mute preference. |
-| Hidden tab | Combine visibility pause/mute with SDK state when `hasFeature('visibilitychange')` is enabled. Recheck SDK state on return. `GameRenderer` overrides Phaser's automatic loop controls without removing any event listeners. |
+| Game moment                               | SDK event / behavior                                                                                                                                                                                                        |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Start, retry, selected or next level      | Await `gameStart(level)` before starting simulation and timers.                                                                                                                                                             |
+| Fruit collected                           | `sendScore(score, {type: 'live', level})`; score is cumulative across the current playthrough.                                                                                                                              |
+| Level progress                            | `sendProgress(round(fruitEaten / target * 100))`; resets to 0 on every level start/retry and reaches 100 on completion.                                                                                                     |
+| Level complete                            | Submit level-only and cumulative total scores, then await `gameEnd('complete')` before exposing results.                                                                                                                    |
+| Wall, body, obstacle, or external failure | Submit scores and await `gameEnd('fail')` before results/retry.                                                                                                                                                             |
+| Quit an active level or restart it        | Await `gameEnd('quit')`; a restart then awaits a fresh `gameStart`. Leaving an already-ended result screen sends no duplicate end.                                                                                          |
+| All three levels cleared                  | Await the final `gameEnd('complete')`, then `gameFinished`, then display the final result.                                                                                                                                  |
+| Player pause / resume                     | Await `gamePause` / `gameResume`. While pause acknowledgment is pending, movement and steering continue; duplicate transition commands are blocked.                                                                         |
+| SDK pause                                 | Freeze immediately, block input, show a passive interruption overlay; preserve a separate player pause flag and do not echo player pause events.                                                                            |
+| SDK mute                                  | Stop scheduled tones immediately; preserve the player's own mute preference.                                                                                                                                                |
+| Hidden tab                                | Combine visibility pause/mute with SDK state when `hasFeature('visibilitychange')` is enabled. Recheck SDK state on return. `GameRenderer` overrides Phaser's automatic loop controls without removing any event listeners. |
 
 Each end event includes score, fruit count, failure reason, and elapsed wall-clock
 `durationMs` (including pauses). The SDK can also request home, quit, restart,
@@ -183,14 +191,17 @@ The home link now quits through the controller instead of reloading an active ru
 
 ## Local verification
 
-Run from this directory:
+Run from the repository root:
 
 ```bash
-pnpm install --frozen-lockfile
-pnpm test
-pnpm build
-pnpm preview --host 127.0.0.1 --port 4174
+npm ci
+npm test -w neon-snake-main
+npm run build -w neon-snake-main
+npm run preview -w neon-snake-main -- --host 127.0.0.1 --port 4174
 ```
+
+This preview verifies the production SDK integration. Use the root `npm run dev`
+for the complete analytics flow through the Vite API proxy.
 
 The automated suite bundles the real TypeScript controller, simulation, storage,
 audio, and SDK adapter with Vite and runs Node's built-in test runner. It supplies
@@ -238,7 +249,7 @@ Browser checks use the **real hosted Famobi localTester SDK**, not the test doub
    reload with the same ID, and verify persistence. A different game ID starts
    with a separate profile. Switching tabs must not clear external pause/mute.
 
-Verified locally on 2026-10-01: all 20 automated tests and TypeScript/production
+Verified locally on 2026-10-01: all 32 automated game tests and TypeScript/production
 build passed. Dev and production browser runs confirmed initialization gating,
 loading/ready, start, collision/failure, retry, quit, and player/external pause handling.
 A reload with the same game ID restored the saved mute preference.

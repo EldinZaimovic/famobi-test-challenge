@@ -4,7 +4,7 @@ A locally runnable game → Node.js API → Firebase Firestore emulator → Reac
 
 ## Quick start
 
-Install **Node.js 22.12+** (Node 22 recommended; `.nvmrc` included), npm, and **Java 17 or 21** with `java` on your PATH. The pinned Firebase CLI 14.12.1 uses Firestore emulator 1.19.8, which works with Java 17. Newer Firebase CLI releases may require Java 21. The first install/start downloads npm packages and the emulator/UI from their official registries; subsequent local gameplay does not need internet.
+Install **Node.js 22.13+** (Node 22 recommended; `.nvmrc` included), npm, and **Java 17 or 21** with `java` on your PATH. The pinned Firebase CLI 14.12.1 uses Firestore emulator 1.19.8, which works with Java 17. Newer Firebase CLI releases may require Java 21. The first install/start downloads npm packages and the emulator/UI from their official registries; the game also needs internet access to load the official Famobi SDK and its local tester on each visit. Firebase storage stays in the local emulator.
 
 From the repository root:
 
@@ -28,7 +28,7 @@ The root **npm workspaces and `package-lock.json`** are the complete solution's 
 ## Test the complete flow
 
 1. Open the dashboard: a new database shows the empty state.
-2. Open the game and select **Start game**. Let the snake hit a wall. Within five seconds the dashboard shows a failed level-1 attempt, its duration, score, and received events.
+2. Open the game and wait for the Famobi SDK to initialize (internet access required), then select **Start game**. Let the snake hit a wall. Within five seconds the dashboard shows a failed level-1 attempt, its duration, score, and received events.
 3. Select **Try again**, then **Pause** → **Exit to menu**. This produces a separate attempt with outcome `left` and reason `menu`. Collect fruit to produce progress events; completing a level produces `completed`.
 4. Filter by level and period. Open Firebase Emulator UI → Firestore → `attempts` and inspect an attempt and its `events` subcollection.
 5. Optionally run `npm run seed` in another terminal. It submits 12 deterministic demo attempts through the API, covering all three levels and all four displayed outcomes. Re-running does not duplicate them. Synthetic occurrence times are fixed; dashboard periods use server receipt time.
@@ -38,7 +38,7 @@ To verify outage recovery independently, run `npm run emulators` in one terminal
 
 ```sh
 npm run dev -w dashboard
-npm run dev:local -w neon-snake-main
+npm run dev -w neon-snake-main
 ```
 
 Do not run this separate-terminal setup alongside `npm run dev`; they use the same ports. The environment variables above configure the **backend process only**, contain no secrets, and do not need an `.env` file.
@@ -49,8 +49,11 @@ Automated checks:
 npm test                  # backend, dashboard polling, and game/transport tests
 npm run test:integration  # fresh, isolated Firestore emulator; no mocked database
 npm run build             # React build + game TypeScript check and build
-npm run format:check      # new backend/dashboard/docs formatting
+npm run format:check      # Prettier across the repository
+npm run lint              # ESLint for backend, dashboard, game, and tests
 ```
+
+GitHub Actions runs Prettier, ESLint, unit tests, isolated Firebase integration tests, and both production builds on every push and pull request using Node 22 and Java 17. Automated SDK tests use an instrumented test double to verify ordering and failures; the runnable game always uses the real hosted SDK.
 
 The integration suite uses project `demo-neon-snake-test`, Firestore 8081, hub 4401, logging 4501 and websocket 9151. It imports no development data and never clears your development emulator. It covers real controller → retry transport → HTTP API → Firestore → dashboard, concurrent deduplication, immutable event IDs, transaction rollback, out-of-order repair, filters/metrics, HTTP validation, and denying direct browser database access. Game tests also exercise actual simulation playthroughs of all three levels, lifecycle failures, and analytics isolation. No browser automation installation is required by these tests.
 
@@ -66,9 +69,9 @@ firebase*.json        Local and isolated test emulator configuration
 firestore.rules       Deny direct client access; only backend Admin SDK writes
 ```
 
-The game already had typed version-1 events and a bounded Famobi storage journal. The integration retains that journal and adds an independent HTTP sink. Controller changes were unnecessary: analytics failures cannot affect movement, scoring, or SDK lifecycle transitions.
+The game uses typed version-1 events and a bounded Famobi storage journal alongside an independent HTTP sink. Analytics failures cannot affect movement, scoring, or SDK lifecycle transitions.
 
-The root local command explicitly selects the checked-in, non-secret `.env.local-demo`, enabling a small **offline platform adapter**. It provides local saves and no-op platform/ad callbacks. This is an explicit development mode, not a silent SDK-failure fallback. `npm run dev -w neon-snake-main` and the default production game build still load the official Famobi SDK before game initialization, with the existing error handling. Local mode does not validate real Famobi ads or portal behavior. See [the game README](neon-snake-main/README.md) for those details.
+The root `npm run dev` command and production game build both load the **official Famobi SDK** from `https://api.games.famobi.com/init.js` before initializing the game. On localhost, Famobi supplies its local tester. There is no offline platform adapter or silent fallback: an SDK loading failure displays a reload action. Internet access is required for the hosted SDK; no real Firebase account or project is needed. See [the game README](neon-snake-main/README.md#local-verification) for SDK test controls, delayed lifecycle events, and pause/ad checks. Local tester checks do not validate live portal ad delivery.
 
 The dashboard and game use Vite's same-origin `/api` proxy. Neither imports Firebase or receives privileged credentials. The backend binds to `127.0.0.1`, requires a loopback `FIRESTORE_EMULATOR_HOST` and a `demo-` project ID, and fails closed otherwise. It never loads a service-account file. Firestore rules deny all direct client reads/writes; the backend Admin SDK is the trusted writer. This follows Firebase's documented [demo-project and Admin SDK emulator connection](https://firebase.google.com/docs/emulator-suite/connect_firestore) workflow.
 
@@ -165,4 +168,4 @@ Move the outbox to IndexedDB with cross-tab coordination, retry jitter, and obse
 
 ## Material use of external tools
 
-OpenAI Codex materially assisted with the backend/API and schema design, React dashboard, game transport and local adapter, emulator configuration, test implementation, documentation, and debugging. Its terminal tools ran npm/Node/Firebase tests and builds; its browser tools verified the local UI. Firebase's official documentation was consulted for demo-project and Admin SDK emulator behavior. Dependencies come from npm, and the emulator comes from Firebase's official download service. The supplied game and its existing SDK integration were used as the starting point. No credentials or private datasets were needed. This disclosure describes the development assistance; the code and technical decisions remain reviewable and modifiable in this repository.
+OpenAI Codex materially assisted with the backend/API and schema design, React dashboard, game transport and SDK setup, emulator configuration, test implementation, documentation, and debugging. Its terminal tools ran npm/Node/Firebase tests and builds; its browser tools verified the local UI. Firebase's official documentation was consulted for demo-project and Admin SDK emulator behavior. Dependencies come from npm, and the emulator comes from Firebase's official download service. The supplied game was used as the starting point; this repository adds the SDK integration and analytics solution. No credentials or private datasets were needed. This disclosure describes the development assistance; the code and technical decisions remain reviewable and modifiable in this repository.

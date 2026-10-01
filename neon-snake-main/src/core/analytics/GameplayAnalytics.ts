@@ -17,15 +17,16 @@ type EventData = {
   durationMs: number;
 };
 
-export type GameplayEvent = EventData & (
-  | { name: 'gameplay_started' | 'gameplay_progress' }
-  | {
-      name: 'gameplay_ended';
-      outcome: GameplayOutcome;
-      leaveReason: LeaveReason | null;
-      failureReason: GameSnapshot['failureReason'];
-    }
-);
+export type GameplayEvent = EventData &
+  (
+    | { name: 'gameplay_started' | 'gameplay_progress' }
+    | {
+        name: 'gameplay_ended';
+        outcome: GameplayOutcome;
+        leaveReason: LeaveReason | null;
+        failureReason: GameSnapshot['failureReason'];
+      }
+  );
 
 export interface AnalyticsSink {
   record(event: GameplayEvent): void | Promise<void>;

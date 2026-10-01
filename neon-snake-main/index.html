@@ -18,10 +18,21 @@
           <span>Neon Snake</span>
         </a>
         <div class="header-actions">
-          <button id="mute-button" class="icon-button" type="button" aria-label="Mute audio">
+          <button
+            id="mute-button"
+            class="icon-button"
+            type="button"
+            aria-label="Mute audio"
+          >
             <span aria-hidden="true">♪</span>
           </button>
-          <button id="pause-button" class="icon-button" type="button" aria-label="Pause game" disabled>
+          <button
+            id="pause-button"
+            class="icon-button"
+            type="button"
+            aria-label="Pause game"
+            disabled
+          >
             <span aria-hidden="true">Ⅱ</span>
           </button>
         </div>
@@ -52,21 +63,45 @@
       </section>
 
       <section class="play-area" aria-label="Snake game">
-        <div id="game-container" class="phaser-container" aria-label="Snake playfield"></div>
+        <div
+          id="game-container"
+          class="phaser-container"
+          aria-label="Snake playfield"
+        ></div>
 
         <div id="game-overlay" class="game-overlay">
           <div class="overlay-card">
-            <span id="overlay-eyebrow" class="overlay-eyebrow">Three levels</span>
+            <span id="overlay-eyebrow" class="overlay-eyebrow"
+              >Three levels</span
+            >
             <h1 id="overlay-title">Ready to slither?</h1>
-            <p id="overlay-copy">Eat the fruit, avoid the walls, and clear every level.</p>
-            <div id="level-select" class="level-select" hidden aria-label="Level selection">
+            <p id="overlay-copy">
+              Eat the fruit, avoid the walls, and clear every level.
+            </p>
+            <div
+              id="level-select"
+              class="level-select"
+              hidden
+              aria-label="Level selection"
+            >
               <button type="button" data-level="1">1</button>
               <button type="button" data-level="2">2</button>
               <button type="button" data-level="3">3</button>
             </div>
             <div class="overlay-actions">
-              <button id="primary-action" class="button button-primary" type="button">Start game</button>
-              <button id="secondary-action" class="button button-secondary" type="button" hidden>
+              <button
+                id="primary-action"
+                class="button button-primary"
+                type="button"
+              >
+                Start game
+              </button>
+              <button
+                id="secondary-action"
+                class="button button-secondary"
+                type="button"
+                hidden
+              >
                 Main menu
               </button>
             </div>
@@ -75,12 +110,43 @@
       </section>
 
       <section class="game-controls" aria-label="Game controls">
-        <p><kbd>Arrow keys</kbd> or <kbd>WASD</kbd> to move · <kbd>P</kbd> to pause</p>
+        <p>
+          <kbd>Arrow keys</kbd> or <kbd>WASD</kbd> to move · <kbd>P</kbd> to
+          pause
+        </p>
         <div class="direction-pad" aria-label="Touch controls">
-          <button class="direction-button direction-up" type="button" data-direction="up" aria-label="Move up">↑</button>
-          <button class="direction-button direction-left" type="button" data-direction="left" aria-label="Move left">←</button>
-          <button class="direction-button direction-down" type="button" data-direction="down" aria-label="Move down">↓</button>
-          <button class="direction-button direction-right" type="button" data-direction="right" aria-label="Move right">→</button>
+          <button
+            class="direction-button direction-up"
+            type="button"
+            data-direction="up"
+            aria-label="Move up"
+          >
+            ↑
+          </button>
+          <button
+            class="direction-button direction-left"
+            type="button"
+            data-direction="left"
+            aria-label="Move left"
+          >
+            ←
+          </button>
+          <button
+            class="direction-button direction-down"
+            type="button"
+            data-direction="down"
+            aria-label="Move down"
+          >
+            ↓
+          </button>
+          <button
+            class="direction-button direction-right"
+            type="button"
+            data-direction="right"
+            aria-label="Move right"
+          >
+            →
+          </button>
         </div>
       </section>
     </main>

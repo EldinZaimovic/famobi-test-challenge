@@ -29,10 +29,15 @@ export class FamobiGameStorage implements GameStorage {
       const storedProfile = this.storage.getItem(this.storageKey);
       if (!storedProfile) return defaultProfile();
 
-      const value = (typeof storedProfile === 'string' ? JSON.parse(storedProfile) : storedProfile) as Partial<PlayerProfile>;
+      const value = (
+        typeof storedProfile === 'string' ? JSON.parse(storedProfile) : storedProfile
+      ) as Partial<PlayerProfile>;
       return {
         bestScore: this.nonNegativeInteger(value.bestScore, 0),
-        highestUnlockedLevel: Math.min(3, Math.max(1, this.nonNegativeInteger(value.highestUnlockedLevel, 1))),
+        highestUnlockedLevel: Math.min(
+          3,
+          Math.max(1, this.nonNegativeInteger(value.highestUnlockedLevel, 1))
+        ),
         totalRuns: this.nonNegativeInteger(value.totalRuns, 0),
         playerMuted: typeof value.playerMuted === 'boolean' ? value.playerMuted : false
       };

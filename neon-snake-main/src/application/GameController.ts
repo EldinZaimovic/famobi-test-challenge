@@ -282,8 +282,11 @@ export class GameController {
     const snapshot = this.getSnapshot();
     this.analytics?.end(
       snapshot,
-      snapshot.phase === 'game-over' ? 'failed' :
-        snapshot.phase === 'level-complete' || snapshot.phase === 'finished' ? 'completed' : 'left',
+      snapshot.phase === 'game-over'
+        ? 'failed'
+        : snapshot.phase === 'level-complete' || snapshot.phase === 'finished'
+          ? 'completed'
+          : 'left',
       reason
     );
     this.run = null;

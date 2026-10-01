@@ -1,0 +1,12 @@
+{
+  "overrides": [
+    {
+      "files": "neon-snake-main/**/*.{ts,js,mjs}",
+      "options": {
+        "singleQuote": true,
+        "trailingComma": "none",
+        "printWidth": 110
+      }
+    }
+  ]
+}

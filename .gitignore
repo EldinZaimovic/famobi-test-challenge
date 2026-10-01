@@ -3,7 +3,6 @@ dist/
 .env
 .env.*
 !.env.example
-!neon-snake-main/.env.local-demo
 .emulator-data/
 *-debug.log*
 *.log

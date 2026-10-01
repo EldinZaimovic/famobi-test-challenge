@@ -1,9 +1,6 @@
 import type { Direction } from './types';
 
-export type InputAction =
-  | { type: 'move'; direction: Direction }
-  | { type: 'pause' }
-  | { type: 'confirm' };
+export type InputAction = { type: 'move'; direction: Direction } | { type: 'pause' } | { type: 'confirm' };
 
 const keyDirections: Partial<Record<string, Direction>> = {
   ArrowUp: 'up',

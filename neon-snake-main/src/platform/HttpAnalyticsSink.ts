@@ -18,8 +18,11 @@ export class HttpAnalyticsSink implements AnalyticsSink {
   ) {
     try {
       const saved: unknown = JSON.parse(storage.getItem(KEY) ?? '[]');
-      if (Array.isArray(saved)) this.queue = saved.filter(e => e && typeof e.eventId === 'string').slice(-LIMIT);
-    } catch { /* Storage can be unavailable. Keep an in-memory queue. */ }
+      if (Array.isArray(saved))
+        this.queue = saved.filter((e) => e && typeof e.eventId === 'string').slice(-LIMIT);
+    } catch {
+      /* Storage can be unavailable. Keep an in-memory queue. */
+    }
   }
 
   record(event: GameplayEvent): void {
@@ -31,12 +34,19 @@ export class HttpAnalyticsSink implements AnalyticsSink {
   }
 
   private persist(): void {
-    try { this.storage.setItem(KEY, JSON.stringify(this.queue)); } catch { /* Gameplay must continue. */ }
+    try {
+      this.storage.setItem(KEY, JSON.stringify(this.queue));
+    } catch {
+      /* Gameplay must continue. */
+    }
   }
 
   private schedule(delay: number): void {
     if (this.disposed || this.timer !== undefined) return;
-    this.timer = setTimeout(() => { this.timer = undefined; void this.flush(); }, delay);
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.flush();
+    }, delay);
   }
 
   async flush(): Promise<void> {
@@ -47,13 +57,15 @@ export class HttpAnalyticsSink implements AnalyticsSink {
     let delay = 0;
     try {
       const response = await this.send(this.endpoint, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ events: [event] }), keepalive: true,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: [event] }),
+        keepalive: true,
         signal: AbortSignal.timeout(8000)
       });
       if (response.ok || [400, 409, 413, 415].includes(response.status)) {
         if (!response.ok) console.warn('Analytics event rejected:', response.status, event.eventId);
-        this.queue = this.queue.filter(e => e.eventId !== event.eventId);
+        this.queue = this.queue.filter((e) => e.eventId !== event.eventId);
         this.persist();
         this.retryMs = 1000;
       } else throw new Error('Collector unavailable');
@@ -73,10 +85,14 @@ export class HttpAnalyticsSink implements AnalyticsSink {
     if (!events.length) return;
     try {
       void this.send(this.endpoint, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ events }), keepalive: true
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events }),
+        keepalive: true
       }).catch(() => {});
-    } catch { /* Keep the durable outbox for the next visit. */ }
+    } catch {
+      /* Keep the durable outbox for the next visit. */
+    }
   }
 
   dispose(): void {
