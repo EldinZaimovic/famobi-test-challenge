@@ -23,7 +23,7 @@ export function DashboardSkeleton() {
           <div className="skeleton-line" />
         </div>
         <div className="charts">
-          {[0, 1].map((key) => (
+          {[0, 1, 2, 3].map((key) => (
             <div className="panel skeleton-chart" key={key}>
               <div className="skeleton-line" />
               <div className="skeleton-line" />

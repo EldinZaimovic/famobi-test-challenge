@@ -263,13 +263,51 @@ test("outcome filtering covers the cohort before the latest-50 display limit", a
   assert.equal(unknown.summary.unknown, 55);
   assert.equal(unknown.summary.completionRate, null);
   assert.equal(unknown.recentAttempts.length, 50);
+  assert.equal(
+    unknown.activity.buckets.reduce((sum, row) => sum + row.attempts, 0),
+    55,
+  );
+  assert.ok(unknown.activity.buckets.every((row) => row.completed === 0));
+  assert.deepEqual(unknown.failureReasons, []);
   assert.ok(unknown.recentAttempts.every((a) => a.outcome === "unknown"));
   const recent = await (
     await fetch(`${base}/api/dashboard?days=1&level=2&outcome=left`)
   ).json();
   assert.equal(recent.summary.attempts, 0);
+  assert.ok(recent.activity.buckets.every((row) => row.attempts === 0));
   assert.equal(
     (await fetch(`${base}/api/dashboard?outcome=invalid`)).status,
     400,
   );
+});
+
+test("chart aggregates use the same filtered cohort as the overview", async () => {
+  assert.equal((await post(history({ outcome: "failed" }))).status, 200);
+  for (const query of [
+    "",
+    "&level=1",
+    "&outcome=failed",
+    "&outcome=completed",
+    "&outcome=left",
+  ]) {
+    const data = await view(query);
+    assert.equal(
+      data.activity.buckets.reduce((sum, row) => sum + row.attempts, 0),
+      data.summary.attempts,
+    );
+    assert.equal(
+      data.activity.buckets.reduce((sum, row) => sum + row.completed, 0),
+      data.summary.completed,
+    );
+    assert.equal(
+      data.failureReasons.reduce((sum, row) => sum + row.count, 0),
+      data.summary.failed,
+    );
+    if (query === "&outcome=failed")
+      assert.ok(
+        data.failureReasons.some(
+          (row) => row.reason === "wall" && row.count > 0,
+        ),
+      );
+  }
 });

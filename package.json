@@ -10,6 +10,11 @@
   "engines": {
     "node": ">=22.13.0"
   },
+  "overrides": {
+    "recharts": {
+      "react-is": "19.1.1"
+    }
+  },
   "scripts": {
     "dev": "firebase emulators:exec --ui --project demo-neon-snake --only firestore --import=.emulator-data --export-on-exit=.emulator-data \"npm run dev:apps\"",
     "dev:apps": "concurrently --kill-others -n api,dashboard,game \"npm run dev -w backend\" \"npm run dev -w dashboard\" \"npm run dev -w neon-snake-main\"",

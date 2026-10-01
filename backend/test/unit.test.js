@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { batchSchema, projectAttempt, querySchema } from "../src/validation.js";
 import { createDatabase } from "../src/firebase.js";
 import { aggregate } from "../src/store.js";
+import { buildActivity, buildFailureReasons } from "../src/dashboardCharts.js";
 import { history } from "./fixtures.js";
 
 test("validates all real level shapes and terminal outcomes", () => {
@@ -100,4 +101,86 @@ test("Firebase connection fails closed without an explicit loopback emulator", (
   ]) {
     assert.throws(() => createDatabase(env), /Requires/);
   }
+});
+
+test("activity buckets preserve UTC boundaries, zero intervals and original receipt cohorts", () => {
+  const now = Date.UTC(2026, 9, 1, 12, 30);
+  const from = now - 86400_000;
+  const activity = buildActivity(
+    [
+      { firstReceivedAt: from, endObserved: false, outcome: "unknown" },
+      {
+        firstReceivedAt: Date.UTC(2026, 9, 1, 0),
+        endedAt: now,
+        endObserved: true,
+        outcome: "completed",
+      },
+      { firstReceivedAt: now, endObserved: true, outcome: "failed" },
+    ],
+    { days: "1", from, now },
+  );
+  assert.equal(activity.intervalMs, 3600_000);
+  assert.equal(activity.buckets.length, 25);
+  assert.equal(activity.buckets[0].attempts, 1);
+  assert.equal(activity.buckets[1].attempts, 0);
+  const midnight = activity.buckets.find(
+    (b) => b.receivedAt === Date.UTC(2026, 9, 1),
+  );
+  assert.equal(midnight.completed, 1);
+  assert.equal(activity.buckets.at(-1).completed, 0);
+  assert.equal(
+    activity.buckets.reduce((n, b) => n + b.attempts, 0),
+    3,
+  );
+});
+
+test("all-time activity stays bounded across years and handles empty and single-interval cohorts", () => {
+  const now = Date.UTC(2026, 9, 1);
+  const attempts = [
+    { firstReceivedAt: Date.UTC(2010, 0, 1) },
+    { firstReceivedAt: now },
+  ];
+  const activity = buildActivity(attempts, { days: "all", from: 0, now });
+  assert.ok(activity.buckets.length <= 32);
+  assert.ok(activity.intervalMs > 86400_000);
+  assert.equal(
+    activity.buckets.reduce((n, b) => n + b.attempts, 0),
+    2,
+  );
+  assert.equal(
+    buildActivity([], { days: "all", from: 0, now }).buckets.length,
+    1,
+  );
+  assert.equal(
+    buildActivity([attempts[1]], { days: "all", from: 0, now }).buckets[0]
+      .attempts,
+    1,
+  );
+  const daily = buildActivity([], {
+    days: "7",
+    from: now - 7 * 86400_000,
+    now,
+  });
+  assert.equal(daily.intervalMs, 86400_000);
+  assert.equal(daily.buckets.length, 8);
+  assert.ok(daily.buckets.every((bucket) => bucket.attempts === 0));
+});
+
+test("failure causes count only recorded failures and preserve missing reasons", () => {
+  assert.deepEqual(
+    buildFailureReasons([
+      { outcome: "failed", endObserved: true, failureReason: "wall" },
+      { outcome: "failed", endObserved: true, failureReason: "wall" },
+      { outcome: "failed", endObserved: true, failureReason: "snake" },
+      { outcome: "failed", endObserved: true, failureReason: null },
+      { outcome: "unknown", endObserved: false, failureReason: "wall" },
+      { outcome: "left", endObserved: true, failureReason: null },
+    ]),
+    [
+      { reason: "wall", count: 2 },
+      { reason: "snake", count: 1 },
+      { reason: "unrecorded", count: 1 },
+    ],
+  );
+  assert.deepEqual(buildFailureReasons([]), []);
 });

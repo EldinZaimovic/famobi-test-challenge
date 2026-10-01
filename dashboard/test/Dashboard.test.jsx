@@ -5,6 +5,10 @@ import { expect, test, vi } from "vitest";
 import { Dashboard } from "../src/Dashboard.jsx";
 import { RecentAttemptsTable } from "../src/components/RecentAttemptsTable.jsx";
 import { aggregate } from "../../backend/src/store.js";
+import {
+  buildActivity,
+  buildFailureReasons,
+} from "../../backend/src/dashboardCharts.js";
 
 const receivedAt = Date.UTC(2026, 8, 30, 12);
 const attempt = {
@@ -54,6 +58,12 @@ function dataset(attempts = [attempt, failed, unknown]) {
     generatedAt: receivedAt,
     truncated: false,
     summary: aggregate(attempts),
+    activity: buildActivity(attempts, {
+      days: "7",
+      from: receivedAt - 7 * 86400_000,
+      now: receivedAt,
+    }),
+    failureReasons: buildFailureReasons(attempts),
     levels: [1, 2, 3].map((level) => ({
       level,
       ...aggregate(attempts.filter((a) => a.level === level)),
@@ -90,12 +100,12 @@ test("renders loading placeholders, sample counts and accessible charts", async 
     within(card).getByText("1 of 2 ended attempts completed"),
   ).toBeVisible();
   expect(
-    screen.getByRole("img", {
+    screen.getByRole("application", {
       name: "Completed: 1, Failed: 1, Left: 0, Unknown: 1",
     }),
   ).toBeVisible();
   expect(
-    screen.getByRole("img", { name: "Level 2: no ended attempts" }),
+    screen.getByRole("application", { name: "Level 2: no ended attempts" }),
   ).toBeVisible();
   expect(
     screen.queryByRole("status", { name: "Loading dashboard" }),

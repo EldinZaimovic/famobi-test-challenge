@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { ConflictError, projectAttempt, sequenceOf } from "./validation.js";
+import { buildActivity, buildFailureReasons } from "./dashboardCharts.js";
 
 export async function ingest(db, events) {
   const groups = Map.groupBy(events, (e) => e.attemptId);
@@ -100,6 +101,8 @@ export async function dashboard(db, { days, level, outcome }) {
     truncated,
     scannedAttempts: Math.min(snapshot.size, 5000),
     summary: aggregate(attempts),
+    activity: buildActivity(attempts, { days, from, now }),
+    failureReasons: buildFailureReasons(attempts),
     levels: [1, 2, 3]
       .filter((n) => !level || n === Number(level))
       .map((level) => ({

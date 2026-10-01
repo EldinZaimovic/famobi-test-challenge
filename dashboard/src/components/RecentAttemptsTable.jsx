@@ -138,7 +138,7 @@ export function RecentAttemptsTable({ attempts }) {
             attempt for details.
           </p>
         </div>
-        <span>03 / ACTIVITY</span>
+        <span>05 / ACTIVITY</span>
       </div>
       <div
         className="table-wrap"

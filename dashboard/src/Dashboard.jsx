@@ -4,6 +4,8 @@ import { DashboardFilters } from "./components/DashboardFilters.jsx";
 import { MetricsOverview } from "./components/MetricsOverview.jsx";
 import { OutcomeChart } from "./components/OutcomeChart.jsx";
 import { LevelPerformanceChart } from "./components/LevelPerformanceChart.jsx";
+import { ActivityChart } from "./components/ActivityChart.jsx";
+import { FailureReasonsChart } from "./components/FailureReasonsChart.jsx";
 import { RecentAttemptsTable } from "./components/RecentAttemptsTable.jsx";
 import { DashboardSkeleton } from "./components/DashboardSkeleton.jsx";
 
@@ -120,6 +122,8 @@ export function Dashboard() {
                 <div className="charts">
                   <OutcomeChart summary={summary} />
                   <LevelPerformanceChart levels={data.levels} />
+                  <ActivityChart activity={data.activity} />
+                  <FailureReasonsChart failureReasons={data.failureReasons} />
                 </div>
                 <RecentAttemptsTable
                   key={queryKey}
