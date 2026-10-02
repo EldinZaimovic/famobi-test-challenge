@@ -1,5 +1,3 @@
-import './style.css';
-
 import Phaser from 'phaser';
 import { GameRenderer } from './game/GameRenderer';
 import { FamobiPlatform } from './platform/FamobiPlatform';
