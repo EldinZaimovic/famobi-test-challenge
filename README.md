@@ -23,6 +23,8 @@ npm run dev
 
 Keep that terminal open. `npm run dev` starts the emulator first, then the API and both Vite servers; Ctrl-C stops the group and exports Firestore into the ignored `.emulator-data/` directory. The next run imports it (a missing directory on the first run is normal). Browser outboxes and game saves are separate localStorage data. A crash or forced shutdown can lose writes since the last export. Port conflicts fail startup instead of silently switching URLs.
 
+**Stopping and restarting:** press Ctrl-C once and wait for `Export complete`, the emulator shutdown messages, and the shell prompt before starting again. Pressing Ctrl-C again during shutdown forces Firebase to exit and can leave its Java subprocess holding port 8080. Closing the terminal before shutdown finishes can also interrupt the export. On macOS/Linux, `lsof -nP -iTCP:8080 -sTCP:LISTEN` identifies the process holding that port. Confirm that it belongs to this project's Firestore emulator before stopping it; do not kill every Java process or delete `.emulator-data` to resolve a port conflict. If the emulator is orphaned and its latest data matters, export that data before stopping it.
+
 The root **npm workspaces and `package-lock.json`** are the complete solution's install source. The game's older pnpm lockfile is retained only for its original standalone workflow; do not mix package managers in this checkout.
 
 ## Test the complete flow

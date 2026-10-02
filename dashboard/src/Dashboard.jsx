@@ -8,6 +8,7 @@ import { ActivityChart } from "./components/ActivityChart.jsx";
 import { FailureReasonsChart } from "./components/FailureReasonsChart.jsx";
 import { RecentAttemptsTable } from "./components/RecentAttemptsTable.jsx";
 import { DashboardSkeleton } from "./components/DashboardSkeleton.jsx";
+import { CreatorCredit } from "./components/CreatorCredit.jsx";
 
 export function Dashboard() {
   const [filters, setFilters] = useState({ days: "7", level: "", outcome: "" });
@@ -30,11 +31,6 @@ export function Dashboard() {
           <span aria-hidden="true">▥</span> Gameplay overview{" "}
           <span className="nav-dot" />
         </div>
-        <div className="sidebar-note">
-          <span className="online-dot" /> LOCAL ENVIRONMENT
-          <p>Firebase Emulator Suite</p>
-          <small>Your gameplay data stays on this machine.</small>
-        </div>
         <a
           className="launch"
           href="http://127.0.0.1:5174"
@@ -43,6 +39,7 @@ export function Dashboard() {
         >
           Launch game <span>↗</span>
         </a>
+        <CreatorCredit />
       </aside>
       <main id="overview" tabIndex={-1}>
         <header>
