@@ -33,8 +33,7 @@ The root **npm workspaces and `package-lock.json`** are the complete solution's 
 2. Open the game and wait for the Famobi SDK to initialize (internet access required), then select **Start game**. Let the snake hit a wall. Within five seconds the dashboard shows a failed level-1 attempt, its duration, score, and received events.
 3. Select **Try again**, then **Pause** → **Exit to menu**. This produces a separate attempt with outcome `left` and reason `menu`. Collect fruit to produce progress events; completing a level produces `completed`.
 4. Filter by level and period. Open Firebase Emulator UI → Firestore → `attempts` and inspect an attempt and its `events` subcollection.
-5. Optionally run `npm run seed` in another terminal. It submits 12 deterministic demo attempts through the API, covering all three levels and all four displayed outcomes. Re-running does not duplicate them. Synthetic occurrence times are fixed; dashboard periods use server receipt time.
-6. Stop with Ctrl-C, then run `npm run dev` again: the dashboard data should survive the export/import cycle.
+5. Stop with Ctrl-C, then run `npm run dev` again: the dashboard data should survive the export/import cycle.
 
 To verify outage recovery independently, run `npm run emulators` in one terminal, `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 GCLOUD_PROJECT=demo-neon-snake npm run dev -w backend` in another, and the two Vite commands below in separate terminals. Stop only the API, play a round, then restart it. The game stays playable; queued events retry, and duplicate delivery does not increase counts.
 
@@ -66,7 +65,6 @@ neon-snake-main/       Existing Phaser/TypeScript game + analytics outbox
 backend/src/          Express API, Zod validation, Firestore transactions and queries
 dashboard/src/        React dashboard; polls the API every 5 seconds
 backend/test/         Contract/unit tests and real emulator integration tests
-scripts/seed.js       Repeatable sample events submitted through the API
 firebase*.json        Local and isolated test emulator configuration
 firestore.rules       Deny direct client access; only backend Admin SDK writes
 ```

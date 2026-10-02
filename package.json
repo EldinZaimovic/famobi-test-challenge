@@ -22,7 +22,6 @@
     "test": "npm run test -w backend && npm run test -w dashboard && npm run test -w neon-snake-main",
     "test:integration": "firebase emulators:exec --config firebase.test.json --project demo-neon-snake-test --only firestore \"node --test backend/test/integration.test.js\"",
     "build": "npm run build -w dashboard && npm run build -w neon-snake-main",
-    "seed": "node scripts/seed.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings=0"

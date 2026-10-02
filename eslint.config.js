@@ -26,7 +26,6 @@ export default defineConfig([
   {
     files: [
       "backend/**/*.js",
-      "scripts/**/*.js",
       "**/test/**/*.js",
       "**/tests/**/*.mjs",
       "**/*config.{js,ts}",
